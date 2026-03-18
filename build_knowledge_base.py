@@ -3,7 +3,7 @@ Build a markdown knowledge base from meeting notes, transcripts, and calendar da
 Output: ~/knowledge_base/ — one .md file per note, plus index files.
 """
 
-import csv, io, re, os, shutil, time
+import csv, io, re, os, subprocess, time
 from datetime import datetime
 from collections import defaultdict
 
@@ -11,20 +11,21 @@ from collections import defaultdict
 def icloud_read(path, retries=10, delay=30, **kwargs):
     """Read an iCloud file safely despite iCloud's file locking (EDEADLK, errno 11).
 
-    shutil.copy2 uses macOS fcopyfile() which acquires an exclusive lock and also
-    triggers EDEADLK when iCloud's daemon holds the file during sync. Instead, we
-    open in binary mode and read all bytes in one shot — no exclusive lock acquired.
+    Python's open() and shutil.copy2 both trigger EDEADLK when iCloud's daemon
+    holds the file during sync — even binary reads fail. Instead, use the shell
+    'cp' command which uses read(2)/write(2) syscalls directly, bypassing fcopyfile.
     Retries with a long delay (30s) since iCloud can hold locks for several minutes.
     """
+    tmp_path = f"/tmp/_icloud_{os.getpid()}_{os.path.basename(path)}"
     for attempt in range(retries):
         try:
-            with open(path, 'rb') as f:
-                data = f.read()
-            # Write to /tmp so we can re-open with caller's mode/encoding kwargs
-            tmp_path = f"/tmp/_icloud_{os.getpid()}_{os.path.basename(path)}"
+            result = subprocess.run(
+                ['cp', str(path), tmp_path],
+                capture_output=True, timeout=30
+            )
+            if result.returncode != 0:
+                raise OSError(f"cp failed: {result.stderr.decode().strip()}")
             try:
-                with open(tmp_path, 'wb') as f:
-                    f.write(data)
                 with open(tmp_path, **kwargs) as f:
                     return f.read()
             finally:
@@ -32,8 +33,8 @@ def icloud_read(path, retries=10, delay=30, **kwargs):
                     os.unlink(tmp_path)
                 except OSError:
                     pass
-        except OSError as e:
-            if e.errno == 11 and attempt < retries - 1:
+        except (OSError, subprocess.TimeoutExpired) as e:
+            if attempt < retries - 1:
                 time.sleep(delay)
                 continue
             raise
