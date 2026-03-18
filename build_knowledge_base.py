@@ -8,15 +8,23 @@ from datetime import datetime
 from collections import defaultdict
 
 
-def icloud_read(path, retries=8, delay=10, **kwargs):
-    """Read an iCloud file by copying to /tmp first to sidestep iCloud's file lock.
-    EDEADLK (errno 11) happens when iCloud's daemon holds a lock during sync —
-    copying out of iCloud Drive to /tmp avoids the lock entirely."""
-    tmp_path = f"/tmp/_icloud_{os.getpid()}_{os.path.basename(path)}"
+def icloud_read(path, retries=10, delay=30, **kwargs):
+    """Read an iCloud file safely despite iCloud's file locking (EDEADLK, errno 11).
+
+    shutil.copy2 uses macOS fcopyfile() which acquires an exclusive lock and also
+    triggers EDEADLK when iCloud's daemon holds the file during sync. Instead, we
+    open in binary mode and read all bytes in one shot — no exclusive lock acquired.
+    Retries with a long delay (30s) since iCloud can hold locks for several minutes.
+    """
     for attempt in range(retries):
         try:
-            shutil.copy2(str(path), tmp_path)
+            with open(path, 'rb') as f:
+                data = f.read()
+            # Write to /tmp so we can re-open with caller's mode/encoding kwargs
+            tmp_path = f"/tmp/_icloud_{os.getpid()}_{os.path.basename(path)}"
             try:
+                with open(tmp_path, 'wb') as f:
+                    f.write(data)
                 with open(tmp_path, **kwargs) as f:
                     return f.read()
             finally:

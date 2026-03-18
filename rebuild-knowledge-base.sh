@@ -23,6 +23,8 @@ if [ $? -ne 0 ]; then
 fi
 
 # Step 2: Build KB
+# Wait 60s for iCloud to settle — it may be syncing overnight recordings at 4am.
+sleep 60
 echo "$(date): Building knowledge base..." >> "$LOG"
 /usr/local/bin/python3 /Users/eoin/build_knowledge_base.py >> "$LOG" 2>&1
 if [ $? -ne 0 ]; then

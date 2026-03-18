@@ -20,8 +20,9 @@ trap "rm -f '$LOCK'" EXIT
 
 echo "$(date): Incremental sync starting..." >> "$LOG"
 
-# Wait briefly for iCloud to finish syncing the CSV before reading it
-sleep 10
+# Wait for iCloud to finish syncing the CSV — iCloud can hold file locks for
+# several minutes during active syncs, so give it a generous head start.
+sleep 60
 
 # ── Step 1: Build KB markdown ─────────────────────────────────────────────────
 # Cal files in /tmp are refreshed by the daily 4am job.
