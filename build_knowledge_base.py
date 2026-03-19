@@ -8,39 +8,23 @@ from datetime import datetime
 from collections import defaultdict
 
 
-def icloud_read(path, retries=10, delay=30, **kwargs):
+def icloud_read(path, retries=10, delay=60, **kwargs):
     """Read an iCloud file safely despite iCloud's file locking (EDEADLK, errno 11).
 
-    Python buffered reads and shutil/cp all use fcopyfile() which requires an
-    exclusive lock — triggering EDEADLK when iCloud's daemon holds the file.
-    os.open() + os.read() uses read(2) directly (no fcopyfile), while still
-    triggering iCloud's auto-download for cloud-only files.
-    Retries with a long delay (30s) since iCloud can hold locks for several minutes.
+    iCloud holds an exclusive lock on files during upload/download sync — any read
+    attempt fails with EDEADLK regardless of the syscall used. Strategy: call
+    'brctl download' to signal iCloud to prioritise the file, then read normally.
+    Retries up to 10 times with 60s delay (10 min total) to outlast the sync lock.
     """
-    tmp_path = f"/tmp/_icloud_{os.getpid()}_{os.path.basename(path)}"
     for attempt in range(retries):
         try:
-            fd = os.open(str(path), os.O_RDONLY)
-            try:
-                chunks = []
-                while True:
-                    chunk = os.read(fd, 65536)
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                data = b''.join(chunks)
-            finally:
-                os.close(fd)
-            try:
-                with open(tmp_path, 'wb') as f:
-                    f.write(data)
-                with open(tmp_path, **kwargs) as f:
-                    return f.read()
-            finally:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
+            # Signal iCloud to fully materialise the file (no-op if already local)
+            subprocess.run(
+                ['brctl', 'download', str(path)],
+                capture_output=True, timeout=60,
+            )
+            with open(path, **kwargs) as f:
+                return f.read()
         except OSError as e:
             if e.errno == 11 and attempt < retries - 1:
                 time.sleep(delay)
