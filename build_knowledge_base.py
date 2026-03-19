@@ -8,41 +8,6 @@ from datetime import datetime
 from collections import defaultdict
 
 
-def icloud_read(path, retries=10, delay=60, **kwargs):
-    """Read an iCloud file safely despite iCloud's file locking (EDEADLK, errno 11).
-
-    iCloud holds an exclusive lock on files during upload/download sync — any read
-    attempt fails with EDEADLK regardless of the syscall used. Strategy: call
-    'brctl download' to signal iCloud to prioritise the file, then read normally.
-    Retries up to 10 times with 60s delay (10 min total) to outlast the sync lock.
-    """
-    for attempt in range(retries):
-        try:
-            # Signal iCloud to fully materialise the file (no-op if already local)
-            subprocess.run(
-                ['brctl', 'download', str(path)],
-                capture_output=True, timeout=60,
-            )
-            with open(path, **kwargs) as f:
-                return f.read()
-        except OSError as e:
-            if e.errno == 11 and attempt < retries - 1:
-                time.sleep(delay)
-                continue
-            raise
-
-
-def icloud_open(path, retries=5, delay=3, **kwargs):
-    """Open an iCloud file with retries on EDEADLK (errno 11)."""
-    for attempt in range(retries):
-        try:
-            return open(path, **kwargs)
-        except OSError as e:
-            if e.errno == 11 and attempt < retries - 1:
-                time.sleep(delay)
-                continue
-            raise
-
 NOTES_DIR = os.path.expanduser(
     "~/Library/Mobile Documents/com~apple~CloudDocs/My Notes"
 )
@@ -53,6 +18,30 @@ OUTPUT_DIR = os.path.expanduser("~/knowledge_base")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 for sub in ("meetings", "people", "topics"):
     os.makedirs(os.path.join(OUTPUT_DIR, sub), exist_ok=True)
+
+# ── Copy iCloud files to /tmp before reading ──────────────────────────────────
+# iCloud holds kernel-level exclusive locks on files during sync, causing
+# EDEADLK on any read attempt. Rsync to /tmp first — /tmp is never locked.
+_TMP_NOTES = "/tmp/kb_notes_build"
+_TMP_ANALYSIS = "/tmp/kb_analysis_build"
+os.makedirs(_TMP_NOTES, exist_ok=True)
+os.makedirs(_TMP_ANALYSIS, exist_ok=True)
+subprocess.run(["rsync", "-a", "--ignore-errors", NOTES_DIR + "/", _TMP_NOTES + "/"], capture_output=True)
+subprocess.run(["rsync", "-a", "--ignore-errors",
+    os.path.dirname(CSV_PATH) + "/", _TMP_ANALYSIS + "/"], capture_output=True)
+NOTES_DIR = _TMP_NOTES
+CSV_PATH = os.path.join(_TMP_ANALYSIS, "classification.csv")
+
+
+def icloud_read(path, **kwargs):
+    """Read a file — now always from /tmp, never from iCloud Drive."""
+    with open(path, **kwargs) as f:
+        return f.read()
+
+
+def icloud_open(path, **kwargs):
+    """Open a file — now always from /tmp, never from iCloud Drive."""
+    return open(path, **kwargs)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
