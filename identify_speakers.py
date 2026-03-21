@@ -411,7 +411,7 @@ Transcript:
     for label, info in speaker_map.items():
         if not info or not isinstance(info, dict):
             continue
-        name = info.get("name", "").strip()
+        name = (info.get("name") or "").strip()
         confidence = info.get("confidence", "low")
         if not name:
             continue
