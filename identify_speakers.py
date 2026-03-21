@@ -409,7 +409,7 @@ Transcript:
     # Rewrite transcript
     new_content = content
     for label, info in speaker_map.items():
-        if not info:
+        if not info or not isinstance(info, dict):
             continue
         name = info.get("name", "").strip()
         confidence = info.get("confidence", "low")
