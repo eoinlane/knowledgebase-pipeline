@@ -181,144 +181,146 @@ def expand_names(names_str, category):
         expanded.append(expansions.get(key, part))
     return ", ".join(expanded)
 
-transcript_path = sys.argv[1]
-csv_path = sys.argv[2]
 
-with open(transcript_path) as f:
-    content = f.read()
+if __name__ == "__main__":
+    transcript_path = sys.argv[1]
+    csv_path = sys.argv[2]
 
-# Extract UUID from header
-uuid = ""
-for line in content.splitlines()[:3]:
-    if line.startswith("File:"):
-        uuid = line.replace("File:", "").strip()
-        uuid = re.sub(r'\.(m4a|txt)$', '', uuid)
+    with open(transcript_path) as f:
+        content = f.read()
 
-if not uuid:
-    print("  Could not extract UUID from transcript header — skipping", file=sys.stderr)
-    sys.exit(1)
+    # Extract UUID from header
+    uuid = ""
+    for line in content.splitlines()[:3]:
+        if line.startswith("File:"):
+            uuid = line.replace("File:", "").strip()
+            uuid = re.sub(r'\.(m4a|txt)$', '', uuid)
 
-# Find unique speaker labels
-speakers = sorted(set(re.findall(r'\[(SPEAKER_\d+|UNKNOWN)\]', content)))
-if not speakers:
-    print("  No SPEAKER_XX labels found — nothing to do")
-    sys.exit(0)
+    if not uuid:
+        print("  Could not extract UUID from transcript header — skipping", file=sys.stderr)
+        sys.exit(1)
 
-# Load existing mappings
-mappings = {}
-if os.path.exists(MAPPINGS_FILE):
-    with open(MAPPINGS_FILE) as f:
-        mappings = json.load(f)
+    # Find unique speaker labels
+    speakers = sorted(set(re.findall(r'\[(SPEAKER_\d+|UNKNOWN)\]', content)))
+    if not speakers:
+        print("  No SPEAKER_XX labels found — nothing to do")
+        sys.exit(0)
 
-# If already confirmed, just re-apply (idempotent rewrite)
-if uuid in mappings and mappings[uuid].get("confirmed"):
-    print(f"  Already confirmed for {uuid} — re-applying")
-    speaker_map = mappings[uuid]["mappings"]
-else:
-    # Look up attendees + category from KB meeting file
-    attendees = []
-    category = ""
-    if os.path.exists(KB_MEETINGS_DIR):
-        for fname in os.listdir(KB_MEETINGS_DIR):
-            fpath = os.path.join(KB_MEETINGS_DIR, fname)
-            try:
-                with open(fpath, errors="replace") as f:
-                    kb_content = f.read()
-                if f"source_file: {uuid}" in kb_content:
-                    # Extract category from frontmatter
-                    cm = re.search(r'^category:\s*(\S+)', kb_content, re.MULTILINE)
-                    if cm:
-                        category = cm.group(1).strip()
-                    # Extract **Attendees:** bullet list (from calendar)
-                    am = re.search(r'\*\*Attendees:\*\*\s*\n((?:- .+\n?)+)', kb_content)
-                    if am:
-                        attendees = [re.sub(r'^- ', '', l).strip()
-                                     for l in am.group(1).splitlines() if l.strip().startswith('- ')]
-                    break
-            except Exception:
-                continue
+    # Load existing mappings
+    mappings = {}
+    if os.path.exists(MAPPINGS_FILE):
+        with open(MAPPINGS_FILE) as f:
+            mappings = json.load(f)
 
-    key_people = ""
-    if attendees:
-        key_people = ", ".join(attendees)
-        print(f"  Attendees from KB calendar ({category}): {key_people}")
+    # If already confirmed, just re-apply (idempotent rewrite)
+    if uuid in mappings and mappings[uuid].get("confirmed"):
+        print(f"  Already confirmed for {uuid} — re-applying")
+        speaker_map = mappings[uuid]["mappings"]
     else:
-        # Fall back to CSV key_people — expand short names using category context
-        if os.path.exists(csv_path):
-            with open(csv_path, newline="", encoding="utf-8") as f:
-                for row in csv.DictReader(f):
-                    row_file = row.get("filename", "").replace(".txt", "")
-                    if row_file == uuid:
-                        key_people = row.get("key_people", "")
-                        if not category:
-                            category = row.get("category", "")
+        # Look up attendees + category from KB meeting file
+        attendees = []
+        category = ""
+        if os.path.exists(KB_MEETINGS_DIR):
+            for fname in os.listdir(KB_MEETINGS_DIR):
+                fpath = os.path.join(KB_MEETINGS_DIR, fname)
+                try:
+                    with open(fpath, errors="replace") as f:
+                        kb_content = f.read()
+                    if f"source_file: {uuid}" in kb_content:
+                        # Extract category from frontmatter
+                        cm = re.search(r'^category:\s*(\S+)', kb_content, re.MULTILINE)
+                        if cm:
+                            category = cm.group(1).strip()
+                        # Extract **Attendees:** bullet list (from calendar)
+                        am = re.search(r'\*\*Attendees:\*\*\s*\n((?:- .+\n?)+)', kb_content)
+                        if am:
+                            attendees = [re.sub(r'^- ', '', l).strip()
+                                         for l in am.group(1).splitlines() if l.strip().startswith('- ')]
                         break
-        if key_people:
-            expanded = expand_names(key_people, category)
-            if expanded != key_people:
-                print(f"  Attendees from CSV → expanded ({category}): {expanded}")
-            else:
-                print(f"  Attendees from CSV ({category}): {key_people}")
-            key_people = expanded
+                except Exception:
+                    continue
 
-    # Eoin Lane is always present (he made the recording) — ensure he's listed
-    if key_people and "Eoin Lane" not in key_people:
-        key_people = "Eoin Lane, " + key_people
-    elif not key_people:
-        key_people = "Eoin Lane"
+        key_people = ""
+        if attendees:
+            key_people = ", ".join(attendees)
+            print(f"  Attendees from KB calendar ({category}): {key_people}")
+        else:
+            # Fall back to CSV key_people — expand short names using category context
+            if os.path.exists(csv_path):
+                with open(csv_path, newline="", encoding="utf-8") as f:
+                    for row in csv.DictReader(f):
+                        row_file = row.get("filename", "").replace(".txt", "")
+                        if row_file == uuid:
+                            key_people = row.get("key_people", "")
+                            if not category:
+                                category = row.get("category", "")
+                            break
+            if key_people:
+                expanded = expand_names(key_people, category)
+                if expanded != key_people:
+                    print(f"  Attendees from CSV → expanded ({category}): {expanded}")
+                else:
+                    print(f"  Attendees from CSV ({category}): {key_people}")
+                key_people = expanded
 
-    # Load speaker registry for few-shot examples
-    registry = {}
-    if os.path.exists(REGISTRY_FILE):
-        with open(REGISTRY_FILE) as f:
-            registry = json.load(f)
+        # Eoin Lane is always present (he made the recording) — ensure he's listed
+        if key_people and "Eoin Lane" not in key_people:
+            key_people = "Eoin Lane, " + key_people
+        elif not key_people:
+            key_people = "Eoin Lane"
 
-    registry_section = ""
-    if registry:
-        reg_lines = ["Known speakers confirmed from previous recordings (match speech patterns to identify them):"]
-        for name, data in sorted(registry.items(), key=lambda x: -x[1].get("appearances", 0)):
-            samples = data.get("samples", [])[:4]
-            appearances = data.get("appearances", 0)
-            if samples:
-                quoted = " | ".join(f'"{s}"' for s in samples)
-                reg_lines.append(f'- {name} ({appearances} recording(s)): {quoted}')
-        registry_section = "\n".join(reg_lines)
+        # Load speaker registry for few-shot examples
+        registry = {}
+        if os.path.exists(REGISTRY_FILE):
+            with open(REGISTRY_FILE) as f:
+                registry = json.load(f)
 
-    # ── Voice matching (fast path — no LLM needed for known speakers) ──────────
-    voice_catalog = {}
-    if os.path.exists(CATALOG_FILE):
-        with open(CATALOG_FILE) as f:
-            voice_catalog = json.load(f)
+        registry_section = ""
+        if registry:
+            reg_lines = ["Known speakers confirmed from previous recordings (match speech patterns to identify them):"]
+            for name, data in sorted(registry.items(), key=lambda x: -x[1].get("appearances", 0)):
+                samples = data.get("samples", [])[:4]
+                appearances = data.get("appearances", 0)
+                if samples:
+                    quoted = " | ".join(f'"{s}"' for s in samples)
+                    reg_lines.append(f'- {name} ({appearances} recording(s)): {quoted}')
+            registry_section = "\n".join(reg_lines)
 
-    voice_matches = voice_match(uuid, speakers, voice_catalog)
-    if voice_matches:
-        print(f"  Voice matches found:")
-        for label, m in voice_matches.items():
-            print(f"    {label} → {m['name']} ({m['confidence']}, sim={m['similarity']})")
+        # ── Voice matching (fast path — no LLM needed for known speakers) ──────────
+        voice_catalog = {}
+        if os.path.exists(CATALOG_FILE):
+            with open(CATALOG_FILE) as f:
+                voice_catalog = json.load(f)
 
-    # Speakers not yet matched by voice → ask LLM
-    unmatched = [s for s in speakers if s not in voice_matches]
-
-    if not unmatched:
-        # All speakers identified by voice — skip LLM entirely
-        print(f"  All speakers matched by voice — skipping LLM")
-        speaker_map = voice_matches
-    else:
-        # ── LLM identification for unmatched speakers ──────────────────────────
-        # Extract name-call cues from full transcript
-        all_attendees = [a.strip() for a in key_people.split(",") if a.strip()]
-        cues = extract_name_cues(content, all_attendees, category)
-        cues_section = ""
-        if cues:
-            cues_section = "\nSpeaker constraints derived from transcript:\n" + "\n".join(f"- {c}" for c in cues)
-
-        # Note which speakers are already identified by voice
-        voice_note = ""
+        voice_matches = voice_match(uuid, speakers, voice_catalog)
         if voice_matches:
-            resolved = ", ".join(f"{l}={m['name']}" for l, m in voice_matches.items())
-            voice_note = f"\nAlready identified by voice analysis: {resolved}. Only identify the remaining speakers."
+            print(f"  Voice matches found:")
+            for label, m in voice_matches.items():
+                print(f"    {label} → {m['name']} ({m['confidence']}, sim={m['similarity']})")
 
-        SYSTEM_PROMPT = f"""You are identifying who is speaking in a meeting recording made by Eoin Lane, an AI consultant based in Dublin.
+        # Speakers not yet matched by voice → ask LLM
+        unmatched = [s for s in speakers if s not in voice_matches]
+
+        if not unmatched:
+            # All speakers identified by voice — skip LLM entirely
+            print(f"  All speakers matched by voice — skipping LLM")
+            speaker_map = voice_matches
+        else:
+            # ── LLM identification for unmatched speakers ──────────────────────────
+            # Extract name-call cues from full transcript
+            all_attendees = [a.strip() for a in key_people.split(",") if a.strip()]
+            cues = extract_name_cues(content, all_attendees, category)
+            cues_section = ""
+            if cues:
+                cues_section = "\nSpeaker constraints derived from transcript:\n" + "\n".join(f"- {c}" for c in cues)
+
+            # Note which speakers are already identified by voice
+            voice_note = ""
+            if voice_matches:
+                resolved = ", ".join(f"{l}={m['name']}" for l, m in voice_matches.items())
+                voice_note = f"\nAlready identified by voice analysis: {resolved}. Only identify the remaining speakers."
+
+            SYSTEM_PROMPT = f"""You are identifying who is speaking in a meeting recording made by Eoin Lane, an AI consultant based in Dublin.
 
 Eoin Lane is almost always one of the speakers — he recorded these on his iPhone. He speaks Irish English, tends to give advice, discuss clients and projects.
 
@@ -345,84 +347,84 @@ Respond with ONLY a JSON object (include ALL speaker labels, even already-identi
   "notes": "one sentence explaining your reasoning"
 }}"""
 
-        sample = content[:8000]
-        USER_PROMPT = f"""Confirmed attendees in this meeting: {key_people if key_people else 'unknown'}
+            sample = content[:8000]
+            USER_PROMPT = f"""Confirmed attendees in this meeting: {key_people if key_people else 'unknown'}
 Speaker labels present: {', '.join(speakers)}{voice_note}
 {cues_section}
 Transcript:
 {sample}"""
 
-        payload = {
-            "model": MODEL,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": USER_PROMPT}
-            ],
-            "stream": False,
-            "keep_alive": 0,
-            "options": {"temperature": 0}
+            payload = {
+                "model": MODEL,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": USER_PROMPT}
+                ],
+                "stream": False,
+                "keep_alive": 0,
+                "options": {"temperature": 0}
+            }
+
+            req = urllib.request.Request(
+                OLLAMA_URL,
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"}
+            )
+
+            try:
+                with urllib.request.urlopen(req, timeout=300) as resp:
+                    result = json.loads(resp.read())
+                raw = result["message"]["content"].strip()
+            except Exception as e:
+                print(f"  Ollama error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+            raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+            json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+            if not json_match:
+                print(f"  Could not parse JSON from response:\n{raw[:300]}", file=sys.stderr)
+                sys.exit(1)
+
+            try:
+                parsed = json.loads(json_match.group())
+            except json.JSONDecodeError as e:
+                print(f"  JSON decode error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+            llm_map = parsed.get("mappings", {})
+            notes = parsed.get("notes", "")
+            print(f"  LLM notes: {notes}")
+
+            # Merge: voice matches take priority over LLM for same label
+            speaker_map = {**llm_map, **voice_matches}
+
+        mappings[uuid] = {
+            "mappings": speaker_map,
+            "confirmed": False,
+            "key_people_hint": key_people
         }
+        with open(MAPPINGS_FILE, "w") as f:
+            json.dump(mappings, f, indent=2)
 
-        req = urllib.request.Request(
-            OLLAMA_URL,
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"}
-        )
+    # Rewrite transcript
+    new_content = content
+    for label, info in speaker_map.items():
+        if not info:
+            continue
+        name = info.get("name", "").strip()
+        confidence = info.get("confidence", "low")
+        if not name:
+            continue
+        display = name if confidence == "high" else f"{name}?"
+        new_content = new_content.replace(f"[{label}]", f"[{display}]")
 
-        try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                result = json.loads(resp.read())
-            raw = result["message"]["content"].strip()
-        except Exception as e:
-            print(f"  Ollama error: {e}", file=sys.stderr)
-            sys.exit(1)
+    with open(transcript_path, "w") as f:
+        f.write(new_content)
 
-        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
-        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not json_match:
-            print(f"  Could not parse JSON from response:\n{raw[:300]}", file=sys.stderr)
-            sys.exit(1)
-
-        try:
-            parsed = json.loads(json_match.group())
-        except json.JSONDecodeError as e:
-            print(f"  JSON decode error: {e}", file=sys.stderr)
-            sys.exit(1)
-
-        llm_map = parsed.get("mappings", {})
-        notes = parsed.get("notes", "")
-        print(f"  LLM notes: {notes}")
-
-        # Merge: voice matches take priority over LLM for same label
-        speaker_map = {**llm_map, **voice_matches}
-
-    mappings[uuid] = {
-        "mappings": speaker_map,
-        "confirmed": False,
-        "key_people_hint": key_people
-    }
-    with open(MAPPINGS_FILE, "w") as f:
-        json.dump(mappings, f, indent=2)
-
-# Rewrite transcript
-new_content = content
-for label, info in speaker_map.items():
-    if not info:
-        continue
-    name = info.get("name", "").strip()
-    confidence = info.get("confidence", "low")
-    if not name:
-        continue
-    display = name if confidence == "high" else f"{name}?"
-    new_content = new_content.replace(f"[{label}]", f"[{display}]")
-
-with open(transcript_path, "w") as f:
-    f.write(new_content)
-
-print(f"  Speaker identification complete for {uuid}")
-for label, info in speaker_map.items():
-    if info:
-        marker = "" if info.get("confidence") == "high" else "?"
-        print(f"    {label} → [{info['name']}{marker}] ({info['confidence']})")
-    else:
-        print(f"    {label} → [unidentified]")
+    print(f"  Speaker identification complete for {uuid}")
+    for label, info in speaker_map.items():
+        if info:
+            marker = "" if info.get("confidence") == "high" else "?"
+            print(f"    {label} → [{info['name']}{marker}] ({info['confidence']})")
+        else:
+            print(f"    {label} → [unidentified]")
