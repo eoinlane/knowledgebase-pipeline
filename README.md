@@ -5,10 +5,11 @@ Automated pipeline that turns iPhone/Mac voice recordings into a searchable know
 ## What it does
 
 1. **Records** — voice notes captured on iPhone via Apple Notes
-2. **Transcribes** — WhisperX (large-v2, CUDA) on Ubuntu GPU box, with speaker diarisation
+2. **Transcribes** — WhisperX (large-v2, CUDA) on Ubuntu GPU box, with speaker diarisation + ECAPA-TDNN voice embeddings per speaker
 3. **Classifies** — deepseek-r1:32b via Ollama assigns category, topic, summary, key people
-4. **Builds** — markdown files per meeting, per person, and per topic — matched against Apple Calendar events
-5. **Uploads** — to Open WebUI knowledge collection, queryable with Claude or deepseek
+4. **Identifies speakers** — maps SPEAKER_XX labels to real names using voice fingerprinting + LLM; rewrites transcript in-place
+5. **Builds** — markdown files per meeting, per person, and per topic — matched against Apple Calendar events
+6. **Uploads** — to Open WebUI knowledge collection, queryable with Claude or deepseek
 
 ## Architecture
 
@@ -17,12 +18,21 @@ iPhone (Apple Notes voice memo)
     ↓ rsync every 5 min (launchd, OTHER Mac)
 Ubuntu ~/audio-inbox/Notes/       ← .m4a files
     ↓ inotifywait (notes-watcher systemd service)
-WhisperX large-v2 + pyannote diarisation
-    ↓ .txt transcript
-rsync → Mac iCloud ~/My Notes/
-    ↓ deepseek-r1:32b via Ollama
-classification.csv  (category, topic, summary, key_people)
-    ↓ rsync → Mac iCloud ~/My Notes Analysis/
+transcribe_single.py
+  WhisperX large-v2 + pyannote diarisation → .txt transcript (SPEAKER_XX labels)
+  ECAPA-TDNN voice embeddings → ~/audio-inbox/Embeddings/{UUID}.json
+    ↓
+rsync transcript → Mac iCloud ~/My Notes/
+    ↓
+classify_transcript.py  (deepseek-r1:32b via Ollama)
+  → classification.csv  (category, topic, summary, key_people)
+  → rsync → Mac iCloud ~/My Notes Analysis/
+    ↓
+identify_speakers.py
+  1. Voice match: compare embeddings against ~/voice_catalog.json (cosine sim)
+  2. LLM fallback: deepseek with name-call cues + speech registry examples
+  → rewrites transcript SPEAKER_XX → [Real Name] / [Real Name?]
+  → rsync updated transcript → Mac iCloud ~/My Notes/
     ↓ launchd WatchPaths trigger (CSV changed)
 build_knowledge_base.py  ← also reads Apple Calendar exports
     ↓
@@ -37,6 +47,11 @@ Open WebUI collection (http://100.121.184.27:8080)
 
 | File | Description |
 |---|---|
+| `transcribe_single.py` | WhisperX transcription + pyannote diarisation. Also extracts ECAPA-TDNN voice embeddings per speaker. Runs on Ubuntu. |
+| `identify_speakers.py` | Maps SPEAKER_XX → real names. Voice catalog match first, LLM fallback for unknowns. Rewrites transcript in-place. Runs on Ubuntu. |
+| `review_speakers.py` | Interactive CLI to confirm/edit speaker mappings. Updates speech registry (LLM few-shot) and voice catalog (embeddings). Runs on Ubuntu. |
+| `batch_identify_speakers.py` | Batch process all existing transcripts overnight. Resumable, skips confirmed. Runs on Ubuntu. |
+| `watch-and-transcribe.sh` | inotifywait loop: transcribe → classify → identify speakers → sync to Mac. |
 | `build_knowledge_base.py` | Builds markdown KB from CSV + calendar data. Content-aware writes (only updates files when content changes). |
 | `upload_knowledge_base_incremental.py` | Incremental upload to Open WebUI — hash-based, self-healing, no mtime drift. |
 | `upload_knowledge_base.py` | Full rebuild upload — deletes and recreates the collection. Used by the 4am cron. |
@@ -100,6 +115,47 @@ def icloud_read(path, retries=8, delay=10, **kwargs):
             ...
 ```
 
+## Speaker Identification
+
+Transcripts are automatically rewritten so `[SPEAKER_00]` becomes `[Eoin Lane]` etc. The system uses two complementary approaches:
+
+**Voice fingerprinting** — ECAPA-TDNN (192-dim) embeddings extracted during transcription and stored per speaker in `~/audio-inbox/Embeddings/{UUID}.json`. On each new recording, embeddings are compared (cosine similarity) against `~/voice_catalog.json`. Score ≥ 0.80 = high confidence auto-assign; ≥ 0.70 = medium. No LLM call needed for known speakers.
+
+**LLM identification** — For unmatched speakers, deepseek-r1:32b is called with:
+- Full attendee list from calendar (or expanded CSV key_people)
+- Hard constraints extracted from transcript (e.g. "SPEAKER_02 addressed Kizzer, Richie, Stephen — so is NOT any of them")
+- Speech pattern examples from `~/speaker_registry.json` (grows with each confirmation)
+
+The system learns with each confirmation via `review_speakers.py`:
+- Speech samples added to registry (LLM gets better few-shot examples)
+- Voice embeddings added to catalog (voice matching gets more reliable)
+
+**Category-aware name expansion** in `identify_speakers.py` maps short/mishearing names to full names (e.g. DCC: "kizzer" → "Khizer Ahmed Biyabani", "chris" → "Christopher Kelly").
+
+**Review and confirm mappings:**
+```bash
+ssh eoin@nvidiaubuntubox "python3 ~/review_speakers.py"
+# Commands: [y] confirm  [e] edit names  [s] skip  [q] quit
+```
+
+**Run batch identification on existing transcripts (overnight):**
+```bash
+ssh eoin@nvidiaubuntubox
+nohup bash -c 'source ~/whisper-env/bin/activate && python3 ~/batch_identify_speakers.py' \
+  > ~/audio-inbox/speaker_id_batch.log 2>&1 &
+# Monitor:
+tail -f ~/audio-inbox/speaker_id_batch.log
+```
+
+**Data files (Ubuntu):**
+
+| File | Contents |
+|---|---|
+| `~/audio-inbox/Embeddings/{UUID}.json` | Per-recording per-speaker ECAPA-TDNN embeddings |
+| `~/voice_catalog.json` | Per-person voice embeddings (rolling 20), grows with confirmations |
+| `~/speaker_registry.json` | Per-person speech samples for LLM few-shot, grows with confirmations |
+| `~/speaker_mappings.json` | Per-recording mappings + confirmed flag |
+
 ## Manual Operations
 
 **Re-run build and incremental upload:**
@@ -112,6 +168,13 @@ python3 ~/upload_knowledge_base_incremental.py
 ```bash
 # On Ubuntu
 python3 ~/classify_transcript.py ~/audio-inbox/Transcriptions/<uuid>.txt ~/audio-inbox/classification.csv
+```
+
+**Re-run speaker identification on a single recording:**
+```bash
+# On Ubuntu
+source ~/whisper-env/bin/activate
+python3 ~/identify_speakers.py ~/audio-inbox/Transcriptions/<uuid>.txt ~/audio-inbox/classification.csv
 ```
 
 **Full rebuild:**

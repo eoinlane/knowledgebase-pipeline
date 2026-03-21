@@ -10,7 +10,7 @@ from datetime import datetime
 
 EMBEDDINGS_DIR = "/home/eoin/audio-inbox/Embeddings"
 
-HF_TOKEN = "HF_TOKEN_PLACEHOLDER"
+HF_TOKEN = os.environ.get("HF_TOKEN", "")  # set in environment, never hardcode
 DEVICE = "cuda"
 COMPUTE_TYPE = "float16"
 
