@@ -382,21 +382,44 @@ Transcript:
             raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
             json_match = re.search(r"\{.*\}", raw, re.DOTALL)
             if not json_match:
-                print(f"  Could not parse JSON from response:\n{raw[:300]}", file=sys.stderr)
-                sys.exit(1)
+                # Fallback: parse prose bullet list format that deepseek-r1 sometimes returns
+                # e.g. "- **SPEAKER_00**: Eoin Lane (High Confidence)"
+                prose_map = {}
+                for m in re.finditer(
+                    r'\*\*(SPEAKER_\d+|UNKNOWN)\*\*[^:]*:\s*([A-Z][^(\n]+?)\s*\((\w+)\s*[Cc]onfidence',
+                    raw
+                ):
+                    label, name, conf = m.group(1), m.group(2).strip(), m.group(3).lower()
+                    if name.lower() not in ("null", "none", "unknown", "unidentified"):
+                        prose_map[label] = {"name": name, "confidence": conf}
+                if prose_map:
+                    print(f"  Used prose fallback parser ({len(prose_map)} speakers)")
+                    llm_map = prose_map
+                    speaker_map = {**llm_map, **voice_matches}
+                    mappings[uuid] = {
+                        "mappings": speaker_map,
+                        "confirmed": False,
+                        "key_people_hint": key_people
+                    }
+                    with open(MAPPINGS_FILE, "w") as f:
+                        json.dump(mappings, f, indent=2)
+                else:
+                    print(f"  Could not parse JSON from response:\n{raw[:300]}", file=sys.stderr)
+                    sys.exit(1)
 
-            try:
-                parsed = json.loads(json_match.group())
-            except json.JSONDecodeError as e:
-                print(f"  JSON decode error: {e}", file=sys.stderr)
-                sys.exit(1)
+            if json_match:
+                try:
+                    parsed = json.loads(json_match.group())
+                except json.JSONDecodeError as e:
+                    print(f"  JSON decode error: {e}", file=sys.stderr)
+                    sys.exit(1)
 
-            llm_map = parsed.get("mappings", {})
-            notes = parsed.get("notes", "")
-            print(f"  LLM notes: {notes}")
+                llm_map = parsed.get("mappings", {})
+                notes = parsed.get("notes", "")
+                print(f"  LLM notes: {notes}")
 
-            # Merge: voice matches take priority over LLM for same label
-            speaker_map = {**llm_map, **voice_matches}
+                # Merge: voice matches take priority over LLM for same label
+                speaker_map = {**llm_map, **voice_matches}
 
         mappings[uuid] = {
             "mappings": speaker_map,
