@@ -158,6 +158,13 @@ a:hover { text-decoration: underline; }
 .save-msg { font-size: 12px; color: #166534; background: #dcfce7;
             padding: 4px 10px; border-radius: 6px; display: none; }
 .corrected { color: #166534; font-style: italic; font-size: 12px; }
+/* nav bar */
+.nav-bar { background: #fff; border-bottom: 1px solid #e0e0e0;
+           padding: 0 24px; display: flex; gap: 0; }
+.nav-bar a { padding: 10px 16px; font-size: 13px; font-weight: 500; color: #666;
+             text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.nav-bar a:hover { color: #0071e3; }
+.nav-bar a.active { color: #0071e3; border-bottom-color: #0071e3; }
 """
 
 # ── index page ────────────────────────────────────────────────────────────────
@@ -169,8 +176,12 @@ INDEX_HTML = f"""
 <header>
   <h1>Contacts</h1>
   <span class="count" id="result-count"></span>
-  <a href="/review" style="font-size:13px;color:#0071e3" id="review-link">Review duplicates</a>
 </header>
+<nav class="nav-bar">
+  <a href="/" class="active">Contacts</a>
+  <a href="/meetings">Meetings</a>
+  <a href="/review">Review duplicates</a>
+</nav>
 <div class="controls">
   <input type="search" id="search" placeholder="Search name…" autofocus>
   <select id="org-filter">
@@ -259,6 +270,11 @@ PERSON_HTML = f"""
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{{{ display_name }}}} — Contacts</title><style>{STYLES}</style></head><body>
 <header><h1>{{{{ display_name }}}}</h1></header>
+<nav class="nav-bar">
+  <a href="/">Contacts</a>
+  <a href="/meetings">Meetings</a>
+  <a href="/review">Review duplicates</a>
+</nav>
 <main>
   <a class="back" href="/">← All contacts</a>
   <div class="card">
@@ -357,7 +373,7 @@ PERSON_HTML = f"""
   </div>
 </main>
 <script>
-const RAW_NAME = {{{{ raw_name_json }}}};
+const RAW_NAME = {{{{ raw_name_json | safe }}}};
 
 function togglePersonEdit() {{
   const p = document.getElementById('person-edit');
@@ -452,6 +468,11 @@ REVIEW_HTML = f"""
   <h1>Review Duplicates</h1>
   <span class="count">{{{{ pending }}}} pending</span>
 </header>
+<nav class="nav-bar">
+  <a href="/">Contacts</a>
+  <a href="/meetings">Meetings</a>
+  <a href="/review" class="active">Review duplicates</a>
+</nav>
 <main>
   <a class="back" href="/">← All contacts</a>
 
@@ -537,6 +558,225 @@ async function dismiss(id, name1, name2) {{
     const pending = document.querySelectorAll('.suggestion').length;
     document.querySelector('.count').textContent = pending + ' pending';
     if (!pending) location.reload();
+  }}
+}}
+</script></body></html>
+"""
+
+# ── meetings browser ─────────────────────────────────────────────────────────
+
+MEETINGS_HTML = f"""
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meetings — Contacts</title><style>{STYLES}</style></head><body>
+<header>
+  <h1>Meetings</h1>
+  <span class="count" id="result-count"></span>
+</header>
+<nav class="nav-bar">
+  <a href="/">Contacts</a>
+  <a href="/meetings" class="active">Meetings</a>
+  <a href="/review">Review duplicates</a>
+</nav>
+<div class="controls">
+  <input type="search" id="search" placeholder="Search topic…" autofocus>
+  <select id="cat-filter">
+    <option value="">All categories</option>
+    {{{{ cat_options }}}}
+  </select>
+  <select id="sort-col">
+    <option value="date">Sort: Date (newest)</option>
+    <option value="title">Sort: Topic A–Z</option>
+    <option value="attendee_count">Sort: Most attendees</option>
+  </select>
+  <button class="clear-btn" onclick="clearFilters()">Clear</button>
+</div>
+<main>
+  <table id="meetings-table">
+    <thead><tr>
+      <th data-col="date">Date <span class="sort-arrow">↕</span></th>
+      <th data-col="category">Category <span class="sort-arrow">↕</span></th>
+      <th data-col="title">Topic <span class="sort-arrow">↕</span></th>
+      <th data-col="attendees">Attendees</th>
+      <th data-col="attendee_count"># <span class="sort-arrow">↕</span></th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <p class="no-results" id="no-results" style="display:none">No meetings found.</p>
+</main>
+<script>
+let allData=[], sortCol='date', sortDir=-1;
+async function loadData(){{
+  allData=await(await fetch('/api/meetings')).json(); render();
+}}
+function orgClass(o){{
+  return ['NTA','DCC','DFB','Diotima','Paradigm','ADAPT','TBS'].includes(o)?'org-'+o:'org-other';
+}}
+function render(){{
+  const s=document.getElementById('search').value.toLowerCase();
+  const c=document.getElementById('cat-filter').value;
+  let d=allData.filter(r=>
+    (r.title||'').toLowerCase().includes(s) &&
+    (!c || r.category===c)
+  );
+  d.sort((a,b)=>{{
+    let av=a[sortCol]??'', bv=b[sortCol]??'';
+    if(sortCol==='attendee_count'){{av=+av;bv=+bv;}}
+    return av<bv?sortDir:av>bv?-sortDir:0;
+  }});
+  document.getElementById('tbody').innerHTML=d.map(r=>{{
+    const attendeeLinks = (r.attendees||[]).map(n=>
+      `<a href="/person/${{encodeURIComponent(n)}}">${{n}}</a>`
+    ).join(', ');
+    return `<tr>
+      <td style="white-space:nowrap;color:#666;font-size:12px">${{r.date||'—'}}</td>
+      <td><span class="badge ${{orgClass(r.category)}}">${{r.category||'—'}}</span></td>
+      <td><a href="/meeting/${{encodeURIComponent(r.filename)}}">${{r.title||r.filename}}</a></td>
+      <td style="font-size:12px">${{attendeeLinks}}</td>
+      <td style="color:#888;font-size:12px">${{r.attendee_count}}</td>
+    </tr>`;
+  }}).join('');
+  document.getElementById('result-count').textContent=d.length+' meetings';
+  document.getElementById('no-results').style.display=d.length?'none':'block';
+  document.querySelector('table').style.display=d.length?'':'none';
+}}
+document.getElementById('search').addEventListener('input',render);
+document.getElementById('cat-filter').addEventListener('change',render);
+document.getElementById('sort-col').addEventListener('change',e=>{{
+  sortCol=e.target.value; sortDir=sortCol==='title'?1:-1; render();
+}});
+document.querySelectorAll('th[data-col]').forEach(th=>{{
+  th.addEventListener('click',()=>{{
+    const col=th.dataset.col; if(!col) return;
+    if(sortCol===col)sortDir*=-1; else{{sortCol=col;sortDir=col==='title'?1:-1;}}
+    document.querySelectorAll('th').forEach(t=>t.classList.remove('sorted'));
+    th.classList.add('sorted');
+    const arr=th.querySelector('.sort-arrow');
+    if(arr) arr.textContent=sortDir===1?'↑':'↓';
+    render();
+  }});
+}});
+function clearFilters(){{
+  document.getElementById('search').value='';
+  document.getElementById('cat-filter').value='';
+  render();
+}}
+loadData();
+</script></body></html>
+"""
+
+# ── meeting detail page ───────────────────────────────────────────────────────
+
+MEETING_HTML = f"""
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{{{ title }}}} — Contacts</title><style>{STYLES}</style></head><body>
+<header><h1>{{{{ title }}}}</h1></header>
+<nav class="nav-bar">
+  <a href="/">Contacts</a>
+  <a href="/meetings" class="active">Meetings</a>
+  <a href="/review">Review duplicates</a>
+</nav>
+<main>
+  <a class="back" href="/meetings">← All meetings</a>
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h2 id="display-title">{{{{ title }}}}</h2>
+        <div class="subtitle">{{{{ meeting.date }}}}
+          {{%- if meeting.category %}} &nbsp;·&nbsp;
+          <span class="badge {{{{ org_class }}}}">{{{{ meeting.category }}}}</span>
+          {{%- endif %}}
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="toggleEdit()">Edit</button>
+    </div>
+
+    {{%- if meeting.summary %}}
+    <div style="margin:12px 0;color:#444;font-size:13px;line-height:1.55">{{{{ meeting.summary }}}}</div>
+    {{%- endif %}}
+
+    <!-- edit panel -->
+    <div class="edit-panel" id="meeting-edit" style="display:none">
+      <label>Topic</label>
+      <input type="text" id="edit-topic" value="{{{{ title }}}}">
+      <label>Tags (secondary categories)</label>
+      <div class="tag-checks" id="edit-tags">
+        {{%- for org in all_orgs %}}
+        <label>
+          <input type="checkbox" value="{{{{ org }}}}" {{{{ 'checked' if org in (meeting.tags or []) else '' }}}}>
+          {{{{ org }}}}
+        </label>
+        {{%- endfor %}}
+      </div>
+      <label>People → correct name</label>
+      <div class="people-map" id="edit-people">
+        {{%- for pname in attendees %}}
+        <div class="people-map-row">
+          <span style="min-width:120px;color:#444">{{{{ pname }}}}</span>
+          <span class="arrow">→</span>
+          <input type="text" placeholder="corrected name (leave blank to keep)"
+                 data-raw="{{{{ pname }}}}"
+                 value="{{{{ people_corrections.get(pname, '') }}}}">
+        </div>
+        {{%- endfor %}}
+      </div>
+      <div class="edit-row">
+        <button class="btn btn-primary btn-sm" onclick="saveMeeting()">Save</button>
+        <button class="btn btn-ghost btn-sm" onclick="toggleEdit()">Cancel</button>
+        <span class="save-msg" id="save-msg">Saved — markdown patched</span>
+      </div>
+    </div>
+
+    <h3 style="font-size:13px;font-weight:600;margin:16px 0 8px;color:#555;text-transform:uppercase;letter-spacing:.04em">
+      Attendees ({{{{ attendees|length }}}})
+    </h3>
+    {{%- if attendees %}}
+    <ul style="list-style:none;display:flex;flex-wrap:wrap;gap:8px">
+      {{%- for pname in attendees %}}
+      <li>
+        <a href="/person/{{{{ pname }}}}"
+           style="display:inline-block;padding:4px 12px;background:#f0f0f5;border-radius:20px;font-size:13px;color:#1d1d1f;text-decoration:none">
+          {{{{ pname }}}}
+        </a>
+      </li>
+      {{%- endfor %}}
+    </ul>
+    {{%- else %}}
+    <p style="color:#888;font-size:13px">No attendees recorded.</p>
+    {{%- endif %}}
+  </div>
+</main>
+<script>
+const FILENAME = {{{{ filename_json | safe }}}};
+
+function toggleEdit() {{
+  const p = document.getElementById('meeting-edit');
+  p.style.display = p.style.display === 'none' ? 'block' : 'none';
+}}
+
+async function saveMeeting() {{
+  const tags = Array.from(document.querySelectorAll('#edit-tags input[type=checkbox]'))
+    .filter(c => c.checked).map(c => c.value);
+  const people_corrections = {{}};
+  document.querySelectorAll('#edit-people input[data-raw]').forEach(inp => {{
+    const val = inp.value.trim();
+    if (val) people_corrections[inp.dataset.raw] = val;
+  }});
+  const payload = {{
+    filename: FILENAME,
+    topic: document.getElementById('edit-topic').value.trim(),
+    tags,
+    people_corrections,
+  }};
+  const r = await fetch('/api/meeting/edit', {{
+    method: 'POST', headers: {{'Content-Type': 'application/json'}},
+    body: JSON.stringify(payload)
+  }});
+  if (r.ok) {{
+    document.getElementById('display-title').textContent = payload.topic || FILENAME;
+    const msg = document.getElementById('save-msg');
+    msg.style.display = 'inline'; setTimeout(() => msg.style.display='none', 4000);
   }}
 }}
 </script></body></html>
@@ -639,6 +879,96 @@ def person(name):
         badge_class=badge_class,
         all_orgs=KNOWN_ORGS,
         kb_dir=str(KB_DIR),
+    )
+
+
+@app.route("/meetings")
+def meetings():
+    conn = get_db()
+    cats = [r[0] for r in conn.execute(
+        "SELECT DISTINCT category FROM meetings WHERE category != '' ORDER BY category"
+    ).fetchall()]
+    conn.close()
+    opts = "\n".join(f'<option value="{c}">{c}</option>' for c in cats)
+    return MEETINGS_HTML.replace("{{ cat_options }}", opts)
+
+
+@app.route("/api/meetings")
+def api_meetings():
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT m.filename, m.title, m.date, m.category,
+               COALESCE(m.topic, m.title) AS topic,
+               COALESCE(m.tags, '[]') AS tags_json,
+               COUNT(a.person_name) AS attendee_count,
+               GROUP_CONCAT(a.person_name, '|||') AS attendee_list
+        FROM meetings m
+        LEFT JOIN attendees a ON a.meeting_id = m.id
+        GROUP BY m.id
+        ORDER BY m.date DESC
+    """).fetchall()
+    conn.close()
+
+    corrections = load_corrections()
+    meeting_corrs = corrections.get("meetings", {})
+
+    result = []
+    for row in rows:
+        fname = row["filename"]
+        mcorr = meeting_corrs.get(fname, {})
+        try:
+            tags = json.loads(row["tags_json"])
+        except Exception:
+            tags = []
+        attendees = [n for n in (row["attendee_list"] or "").split("|||") if n]
+        result.append({
+            "filename":      fname,
+            "title":         mcorr.get("topic") or row["topic"] or fname,
+            "date":          (row["date"] or "")[:10],
+            "category":      row["category"],
+            "tags":          mcorr.get("tags", tags),
+            "attendee_count": row["attendee_count"],
+            "attendees":     attendees,
+        })
+    return jsonify(result)
+
+
+@app.route("/meeting/<filename>")
+def meeting_detail(filename):
+    conn = get_db()
+    m = conn.execute("SELECT * FROM meetings WHERE filename=?", (filename,)).fetchone()
+    if not m:
+        conn.close()
+        return "Meeting not found", 404
+
+    attendees = [r[0] for r in conn.execute(
+        "SELECT person_name FROM attendees WHERE meeting_id=? ORDER BY person_name",
+        (m["id"],)
+    ).fetchall()]
+    conn.close()
+
+    corrections = load_corrections()
+    mcorr = corrections.get("meetings", {}).get(filename, {})
+    people_corrections = mcorr.get("people_corrections", {})
+
+    try:
+        tags = json.loads(m["tags"] or "[]")
+    except Exception:
+        tags = []
+    tags = mcorr.get("tags", tags)
+    title = mcorr.get("topic") or m["topic"] or m["title"] or filename
+
+    oc = org_class(m["category"] or "")
+
+    return render_template_string(
+        MEETING_HTML,
+        meeting=m,
+        title=title,
+        attendees=attendees,
+        people_corrections=people_corrections,
+        org_class=oc,
+        all_orgs=KNOWN_ORGS,
+        filename_json=json.dumps(filename),
     )
 
 

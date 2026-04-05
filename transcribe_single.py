@@ -27,13 +27,32 @@ if os.path.exists(ts_file):
 recorded_at = ts_map.get(uuid, datetime.fromtimestamp(os.path.getmtime(audio_file)).strftime("%Y-%m-%d %H:%M:%S"))
 
 print(f"Loading model for {uuid}...")
-model = whisperx.load_model("large-v2", device=DEVICE, compute_type=COMPUTE_TYPE)
+model = whisperx.load_model("large-v3", device=DEVICE, compute_type=COMPUTE_TYPE)
 diarize_model = DiarizationPipeline(token=HF_TOKEN, device=DEVICE)
 
 audio = whisperx.load_audio(audio_file)
 result = model.transcribe(audio, batch_size=16, language="en")
 language = "en"
 print(f"  Language: en (hardcoded)")
+
+# Strip hallucinated repeated segments (same text 3+ times consecutively)
+def dedupe_segments(segments, max_repeats=3):
+    if not segments:
+        return segments
+    out = [segments[0]]
+    run, run_text = 1, segments[0]["text"].strip()
+    for seg in segments[1:]:
+        t = seg["text"].strip()
+        if t == run_text:
+            run += 1
+            if run <= max_repeats:
+                out.append(seg)
+        else:
+            run, run_text = 1, t
+            out.append(seg)
+    return out
+
+result["segments"] = dedupe_segments(result.get("segments", []))
 
 try:
     align_model, metadata = whisperx.load_align_model(language_code=language, device=DEVICE)

@@ -10,6 +10,13 @@ MAC_HOST="eoin@100.103.128.44"
 MAC_NOTES_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes"
 MAC_ANALYSIS_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes Analysis"
 CSV_PATH="/home/eoin/audio-inbox/classification.csv"
+export HF_TOKEN="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"
+
+OLLAMA_UNLOAD='{"model":"deepseek-r1:32b","keep_alive":0}'
+
+ollama_unload() {
+    curl -s http://localhost:11434/api/generate -d "$OLLAMA_UNLOAD" > /dev/null 2>&1 || true
+}
 
 mkdir -p "$OUT_DIR"
 echo "$(date): Watcher started" >> "$LOG"
@@ -58,6 +65,7 @@ while read FNAME; do
     python3 /home/eoin/classify_transcript.py "$OUT_PATH" "$CSV_PATH" >> "$LOG" 2>&1
     CLASS_STATUS=$?
     deactivate
+    ollama_unload  # always release GPU after Ollama, even on timeout/failure
 
     if [ $CLASS_STATUS -ne 0 ]; then
         echo "$(date): Classification FAILED (exit $CLASS_STATUS) — $UUID" >> "$LOG"
@@ -80,6 +88,7 @@ while read FNAME; do
     python3 /home/eoin/identify_speakers.py "$OUT_PATH" "$CSV_PATH" >> "$LOG" 2>&1
     ID_STATUS=$?
     deactivate
+    ollama_unload  # always release GPU after Ollama, even on timeout/failure
 
     if [ $ID_STATUS -ne 0 ]; then
         echo "$(date): Speaker ID FAILED (exit $ID_STATUS) — $UUID" >> "$LOG"

@@ -33,6 +33,7 @@ python3 ~/knowledgebase-pipeline/build_contacts_db.py
 python3 ~/knowledgebase-pipeline/contacts_viewer.py
 # Open http://localhost:5100
 # Kill existing: kill $(lsof -ti :5100)
+# Pages: / (contacts), /meetings (meetings browser), /review (duplicate review)
 ```
 
 **Re-run speaker ID on a single transcript (Ubuntu):**
@@ -63,7 +64,7 @@ ssh eoin@nvidiaubuntubox "systemctl is-active notes-watcher && systemctl --user 
 
 ### Mac vs Ubuntu Split
 
-Scripts that run on **Ubuntu** (GPU required): `transcribe_single.py`, `identify_speakers.py`, `review_speakers.py`, `batch_identify_speakers.py`, `watch-and-transcribe.sh`. These are deployed by copying to `~/` on Ubuntu — they do not run from the repo path.
+Scripts that run on **Ubuntu** (GPU required): `transcribe_single.py`, `identify_speakers.py`, `review_speakers.py`, `batch_identify_speakers.py`, `watch-and-transcribe.sh`, `watchdog-transcribe.sh`. These are deployed by copying to `~/` on Ubuntu — they do not run from the repo path.
 
 Scripts that run on **Mac**: `build_knowledge_base.py`, `build_contacts_db.py`, `contacts_viewer.py`, `apply_kb_corrections.py`, `process_inbox.py`, `upload_knowledge_base_incremental.py`.
 
@@ -132,6 +133,8 @@ All reads from `~/Library/Mobile Documents/com~apple~CloudDocs/` go through `icl
 
 The name expansion table inside `identify_speakers.py` maps category-specific mishearings to full names (e.g. DCC: `"kizzer"` → `"Khizer Ahmed Biyabani"`). The script body is wrapped in `if __name__ == "__main__":` so functions are importable for testing.
 
+`transcribe_single.py` uses WhisperX `large-v3` with post-processing `dedupe_segments()` to strip hallucinated repeated segments. Also extracts ECAPA-TDNN voice embeddings per speaker. `watch-and-transcribe.sh` calls `ollama_unload()` after every classify/speaker-ID step (success or failure) to prevent Ollama holding VRAM when WhisperX needs it.
+
 ## Infrastructure
 
 | Component | Details |
@@ -140,6 +143,7 @@ The name expansion table inside `identify_speakers.py` maps category-specific mi
 | Open WebUI | `http://100.121.184.27:8080` |
 | LiteLLM proxy | Ubuntu port 4000, models: `claude-sonnet-4-6`, `claude-haiku-4-5` |
 | Ollama | Ubuntu, `deepseek-r1:32b` (classification), can't run simultaneously with WhisperX |
+| WhisperX | Model: `large-v3`, device: CUDA float16. `watch-and-transcribe.sh` handles new files via inotify; `watchdog-transcribe.sh` runs every 30 min via systemd timer to catch misses and retry failed classifications |
 | WhisperX env | Ubuntu `~/whisper-env/` — always activate before running transcription scripts |
 
 ## KB File Conventions
