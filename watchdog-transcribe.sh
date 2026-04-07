@@ -13,25 +13,19 @@ MAC_HOST="eoin@100.103.128.44"
 MAC_NOTES_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes"
 MAC_ANALYSIS_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes Analysis"
 MIN_AGE_MINUTES=15   # Give the watcher first shot at new files
-OLLAMA_UNLOAD='{"model":"deepseek-r1:32b","keep_alive":0}'
+OLLAMA_BOX="http://192.168.0.70:11434"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S'): $*" >> "$LOG"; }
 
 ollama_unload() {
-    curl -s http://localhost:11434/api/generate -d "$OLLAMA_UNLOAD" > /dev/null 2>&1 || true
+    : # No-op: model stays warm on dedicated ollama-box GPU
 }
 
 ollama_ensure_responsive() {
-    # Ping Ollama; if it doesn't respond within 10s, restart the service.
-    if ! curl -s --max-time 10 http://localhost:11434/api/tags > /dev/null 2>&1; then
-        log "Ollama unresponsive — restarting..."
-        echo el | sudo -S systemctl restart ollama >> "$LOG" 2>&1
-        sleep 10
-        if ! curl -s --max-time 10 http://localhost:11434/api/tags > /dev/null 2>&1; then
-            log "Ollama still unresponsive after restart — skipping Ollama steps this run."
-            return 1
-        fi
-        log "Ollama restarted OK."
+    # Ping ollama-box; it's a dedicated VM so we can't restart it, just skip if down.
+    if ! curl -s --max-time 10 "$OLLAMA_BOX/api/tags" > /dev/null 2>&1; then
+        log "ollama-box unresponsive ($OLLAMA_BOX) — skipping Ollama steps this run."
+        return 1
     fi
     return 0
 }

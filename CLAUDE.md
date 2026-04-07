@@ -133,7 +133,7 @@ All reads from `~/Library/Mobile Documents/com~apple~CloudDocs/` go through `icl
 
 The name expansion table inside `identify_speakers.py` maps category-specific mishearings to full names (e.g. DCC: `"kizzer"` → `"Khizer Ahmed Biyabani"`). The script body is wrapped in `if __name__ == "__main__":` so functions are importable for testing.
 
-`transcribe_single.py` uses WhisperX `large-v3` with post-processing `dedupe_segments()` to strip hallucinated repeated segments. Also extracts ECAPA-TDNN voice embeddings per speaker. `watch-and-transcribe.sh` calls `ollama_unload()` after every classify/speaker-ID step (success or failure) to prevent Ollama holding VRAM when WhisperX needs it.
+`transcribe_single.py` uses WhisperX `large-v3` with post-processing `dedupe_segments()` to strip hallucinated repeated segments. Also extracts ECAPA-TDNN voice embeddings per speaker. LLM inference (classification + speaker ID) runs on ollama-box (192.168.0.70), completely separate from the Ubuntu transcription GPU.
 
 ## Infrastructure
 
@@ -142,8 +142,8 @@ The name expansion table inside `identify_speakers.py` maps category-specific mi
 | Ubuntu | `eoin@nvidiaubuntubox`, Tailscale `100.121.184.27`, SSH key auth, password `el` |
 | Open WebUI | `http://100.121.184.27:8080` |
 | LiteLLM proxy | Ubuntu port 4000, models: `claude-sonnet-4-6`, `claude-haiku-4-5` |
-| Ollama | Ubuntu, `deepseek-r1:32b` (classification), can't run simultaneously with WhisperX |
-| WhisperX | Model: `large-v3`, device: CUDA float16. `watch-and-transcribe.sh` handles new files via inotify; `watchdog-transcribe.sh` runs every 30 min via systemd timer to catch misses and retry failed classifications |
+| ollama-box | `192.168.0.70:11434`, Debian 13 bhyve VM on FreeBSD (192.168.0.14), RTX 4060 8GB, `deepseek-r1:14b` (~8 tok/s). Start VM: `ssh eoin@192.168.0.14 "echo el \| sudo -S vm start ollama-box"` |
+| WhisperX | Ubuntu RTX 5060 Ti 16GB, model `large-v3`, CUDA float16. `watch-and-transcribe.sh` handles new files via inotify; `watchdog-transcribe.sh` runs every 30 min via systemd timer to catch misses and retry failed classifications |
 | WhisperX env | Ubuntu `~/whisper-env/` — always activate before running transcription scripts |
 
 ## KB File Conventions

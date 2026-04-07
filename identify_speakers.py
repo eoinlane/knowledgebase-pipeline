@@ -16,8 +16,8 @@ from collections import defaultdict
 import urllib.request
 import numpy as np
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "deepseek-r1:32b"
+OLLAMA_URL = "http://192.168.0.70:11434/api/chat"
+MODEL = "deepseek-r1:14b"
 MAPPINGS_FILE    = os.path.expanduser("~/speaker_mappings.json")
 REGISTRY_FILE    = os.path.expanduser("~/speaker_registry.json")
 CATALOG_FILE     = os.path.expanduser("~/voice_catalog.json")
