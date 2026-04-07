@@ -129,14 +129,14 @@ class TestClassificationSmoke:
         )
         assert r.stdout.strip() == "ok", "classify_transcript.py not found on Ubuntu"
 
-    def test_ollama_deepseek_loaded_or_available(self):
-        """deepseek-r1:32b should be available in Ollama model list."""
+    def test_ollama_model_available(self):
+        """qwen2.5:14b should be available on ollama-box."""
         r = subprocess.run(
-            ["ssh", UBUNTU_HOST, "curl -s http://localhost:11434/api/tags"],
+            ["curl", "-s", "--max-time", "10", "http://192.168.0.70:11434/api/tags"],
             capture_output=True, text=True, timeout=15
         )
-        assert "deepseek" in r.stdout.lower(), \
-            f"deepseek model not found in Ollama: {r.stdout[:300]}"
+        assert "qwen2.5" in r.stdout.lower(), \
+            f"qwen2.5 model not found on ollama-box: {r.stdout[:300]}"
 
 
 # ── Build pipeline smoke test ──────────────────────────────────────────────────

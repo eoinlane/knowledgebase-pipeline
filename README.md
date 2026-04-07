@@ -6,7 +6,7 @@ Automated pipeline that turns iPhone/Mac voice recordings into a searchable know
 
 1. **Records** — voice notes captured on iPhone via Apple Notes
 2. **Transcribes** — WhisperX (large-v2, CUDA) on Ubuntu GPU box, with speaker diarisation + ECAPA-TDNN voice embeddings per speaker
-3. **Classifies** — deepseek-r1:32b via Ollama assigns category, topic, summary, key people
+3. **Classifies** — qwen2.5:14b via Ollama assigns category, topic, summary, key people
 4. **Identifies speakers** — maps SPEAKER_XX labels to real names using voice fingerprinting + LLM; rewrites transcript in-place
 5. **Builds** — markdown files per meeting, per person, and per topic — matched against Apple Calendar events
 6. **Uploads** — to Open WebUI knowledge collection, queryable with Claude or deepseek
@@ -24,7 +24,7 @@ transcribe_single.py
     ↓
 rsync transcript → Mac iCloud ~/My Notes/
     ↓
-classify_transcript.py  (deepseek-r1:32b via Ollama)
+classify_transcript.py  (qwen2.5:14b via Ollama)
   → classification.csv  (category, topic, summary, key_people)
   → rsync → Mac iCloud ~/My Notes Analysis/
     ↓
@@ -67,7 +67,7 @@ Open WebUI collection (http://100.121.184.27:8080)
 | Ubuntu GPU box | `eoin@nvidiaubuntubox` (Tailscale: 100.121.184.27) | PNY RTX 5060 Ti 16GB, Ubuntu 24.04 |
 | Open WebUI | `http://100.121.184.27:8080` | Running in Docker |
 | LiteLLM proxy | Ubuntu port 4000 | Routes Claude API calls |
-| Ollama | Ubuntu | deepseek-r1:32b (classification), deepseek-r1:14b |
+| Ollama | ollama-box (192.168.0.70) | qwen2.5:14b (classification + speaker ID) |
 | WhisperX | Ubuntu `~/whisper-env/` | large-v2, CUDA, float16, English |
 
 ## Mac launchd Agents
@@ -121,7 +121,7 @@ Transcripts are automatically rewritten so `[SPEAKER_00]` becomes `[Eoin Lane]` 
 
 **Voice fingerprinting** — ECAPA-TDNN (192-dim) embeddings extracted during transcription and stored per speaker in `~/audio-inbox/Embeddings/{UUID}.json`. On each new recording, embeddings are compared (cosine similarity) against `~/voice_catalog.json`. Score ≥ 0.80 = high confidence auto-assign; ≥ 0.70 = medium. No LLM call needed for known speakers.
 
-**LLM identification** — For unmatched speakers, deepseek-r1:32b is called with:
+**LLM identification** — For unmatched speakers, qwen2.5:14b is called with:
 - Full attendee list from calendar (or expanded CSV key_people)
 - Hard constraints extracted from transcript (e.g. "SPEAKER_02 addressed Kizzer, Richie, Stephen — so is NOT any of them")
 - Speech pattern examples from `~/speaker_registry.json` (grows with each confirmation)

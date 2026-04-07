@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Identify speakers in a WhisperX transcript using deepseek-r1:32b.
+Identify speakers in a WhisperX transcript using qwen2.5:14b via ollama-box.
 Reads key_people from the classification CSV, asks the LLM to map
 SPEAKER_XX labels to real names, then rewrites the transcript in-place.
 
@@ -17,7 +17,7 @@ import urllib.request
 import numpy as np
 
 OLLAMA_URL = "http://192.168.0.70:11434/api/chat"
-MODEL = "deepseek-r1:14b"
+MODEL = "qwen2.5:14b"
 MAPPINGS_FILE    = os.path.expanduser("~/speaker_mappings.json")
 REGISTRY_FILE    = os.path.expanduser("~/speaker_registry.json")
 CATALOG_FILE     = os.path.expanduser("~/voice_catalog.json")
@@ -361,7 +361,7 @@ Transcript:
                     {"role": "user", "content": USER_PROMPT}
                 ],
                 "stream": False,
-                "keep_alive": 0,
+                "keep_alive": -1,
                 "options": {"temperature": 0}
             }
 

@@ -12,10 +12,8 @@ MAC_ANALYSIS_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My No
 CSV_PATH="/home/eoin/audio-inbox/classification.csv"
 export HF_TOKEN="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"
 
-OLLAMA_UNLOAD='{"model":"deepseek-r1:32b","keep_alive":0}'
-
 ollama_unload() {
-    curl -s http://localhost:11434/api/generate -d "$OLLAMA_UNLOAD" > /dev/null 2>&1 || true
+    : # No-op: model stays warm on dedicated ollama-box GPU
 }
 
 mkdir -p "$OUT_DIR"

@@ -129,7 +129,7 @@ All reads from `~/Library/Mobile Documents/com~apple~CloudDocs/` go through `icl
 
 `identify_speakers.py` (Ubuntu) rewrites `[SPEAKER_XX]` labels in transcripts using:
 1. Voice matching: cosine similarity of ECAPA-TDNN embeddings against `~/voice_catalog.json` (≥0.80 = high confidence, ≥0.70 = medium)
-2. LLM fallback: deepseek-r1:32b with calendar attendees, name-call cues from transcript, and speech samples from `~/speaker_registry.json`
+2. LLM fallback: qwen2.5:14b (via ollama-box) with calendar attendees, name-call cues from transcript, and speech samples from `~/speaker_registry.json`
 
 The name expansion table inside `identify_speakers.py` maps category-specific mishearings to full names (e.g. DCC: `"kizzer"` → `"Khizer Ahmed Biyabani"`). The script body is wrapped in `if __name__ == "__main__":` so functions are importable for testing.
 
@@ -142,7 +142,7 @@ The name expansion table inside `identify_speakers.py` maps category-specific mi
 | Ubuntu | `eoin@nvidiaubuntubox`, Tailscale `100.121.184.27`, SSH key auth, password `el` |
 | Open WebUI | `http://100.121.184.27:8080` |
 | LiteLLM proxy | Ubuntu port 4000, models: `claude-sonnet-4-6`, `claude-haiku-4-5` |
-| ollama-box | `192.168.0.70:11434`, Debian 13 bhyve VM on FreeBSD (192.168.0.14), RTX 4060 8GB, `deepseek-r1:14b` (~8 tok/s). Start VM: `ssh eoin@192.168.0.14 "echo el \| sudo -S vm start ollama-box"` |
+| ollama-box | `192.168.0.70:11434`, Debian 13 bhyve VM on FreeBSD (192.168.0.14), RTX 4060 8GB, `qwen2.5:14b` (~8 tok/s, ~13s/classification). Start VM: `ssh eoin@192.168.0.14 "echo el \| sudo -S vm start ollama-box"` |
 | WhisperX | Ubuntu RTX 5060 Ti 16GB, model `large-v3`, CUDA float16. `watch-and-transcribe.sh` handles new files via inotify; `watchdog-transcribe.sh` runs every 30 min via systemd timer to catch misses and retry failed classifications |
 | WhisperX env | Ubuntu `~/whisper-env/` — always activate before running transcription scripts |
 

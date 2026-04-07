@@ -1,0 +1,162 @@
+{
+  "model": "deepseek-r1:14b",
+  "timestamp": "20260407_223620",
+  "results": [
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 74.7,
+      "eval_count": 555,
+      "eval_duration": 72.9,
+      "tok_per_sec": 7.6,
+      "think_overhead_pct": 0,
+      "speaker_count": 4,
+      "eoin_detected": false,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_01": {
+          "name": "Vander",
+          "confidence": "medium"
+        },
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_04": {
+          "name": null,
+          "confidence": "low"
+        }
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 84.0,
+      "eval_count": 581,
+      "eval_duration": 80.7,
+      "tok_per_sec": 7.2,
+      "think_overhead_pct": 0,
+      "speaker_count": 2,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": "Declan",
+          "confidence": "medium"
+        }
+      },
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 112.4,
+      "eval_count": 786,
+      "eval_duration": 109.6,
+      "tok_per_sec": 7.2,
+      "think_overhead_pct": 0,
+      "speaker_count": 5,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": "Declan",
+          "confidence": "medium"
+        },
+        "SPEAKER_02": {
+          "name": "Alex",
+          "confidence": "medium"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_04": {
+          "name": "Fiona",
+          "confidence": "high"
+        }
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 42.9,
+      "eval_count": 303,
+      "eval_duration": 40.7,
+      "tok_per_sec": 7.4,
+      "think_overhead_pct": 0,
+      "speaker_count": 3,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_02": {
+          "name": "An intern",
+          "confidence": "low"
+        }
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1"
+    }
+  ]
+}
