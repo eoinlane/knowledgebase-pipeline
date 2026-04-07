@@ -21,6 +21,21 @@ ollama_unload() {
     curl -s http://localhost:11434/api/generate -d "$OLLAMA_UNLOAD" > /dev/null 2>&1 || true
 }
 
+ollama_ensure_responsive() {
+    # Ping Ollama; if it doesn't respond within 10s, restart the service.
+    if ! curl -s --max-time 10 http://localhost:11434/api/tags > /dev/null 2>&1; then
+        log "Ollama unresponsive — restarting..."
+        echo el | sudo -S systemctl restart ollama >> "$LOG" 2>&1
+        sleep 10
+        if ! curl -s --max-time 10 http://localhost:11434/api/tags > /dev/null 2>&1; then
+            log "Ollama still unresponsive after restart — skipping Ollama steps this run."
+            return 1
+        fi
+        log "Ollama restarted OK."
+    fi
+    return 0
+}
+
 log "--- Watchdog starting ---"
 
 # Bail out if GPU is in heavy use (avoids CUDA OOM competition).
@@ -40,6 +55,7 @@ while IFS= read -r txt_path; do
     stem=$(basename "$txt_path" .txt)
     if ! grep -q "$stem" "$CSV_PATH" 2>/dev/null; then
         log "Retrying classification: $stem"
+        ollama_ensure_responsive || { RETRY_COUNT=$((RETRY_COUNT + 1)); continue; }
         source "$VENV/bin/activate"
         python3 /home/eoin/classify_transcript.py "$txt_path" "$CSV_PATH" >> "$LOG" 2>&1
         STATUS=$?
@@ -104,6 +120,7 @@ rsync -az -e "ssh -o StrictHostKeyChecking=no" \
 
 # ── Step 4: Classify ──────────────────────────────────────────────────────────
 log "Classifying $stem..."
+ollama_ensure_responsive || { log "Skipping classify — Ollama unresponsive"; }
 source "$VENV/bin/activate"
 python3 /home/eoin/classify_transcript.py "$txt" "$CSV_PATH" >> "$LOG" 2>&1
 STATUS=$?
@@ -120,6 +137,7 @@ fi
 
 # ── Step 5: Speaker ID ────────────────────────────────────────────────────────
 log "Speaker ID for $stem..."
+ollama_ensure_responsive || { log "Skipping speaker ID — Ollama unresponsive"; }
 source "$VENV/bin/activate"
 python3 /home/eoin/identify_speakers.py "$txt" "$CSV_PATH" >> "$LOG" 2>&1
 STATUS=$?
