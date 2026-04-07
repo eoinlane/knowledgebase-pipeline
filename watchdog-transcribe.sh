@@ -23,9 +23,11 @@ ollama_unload() {
 
 log "--- Watchdog starting ---"
 
-# Bail out if transcription is already running (avoid CUDA OOM competition)
-if pgrep -f "transcribe_single.py" > /dev/null; then
-    log "transcribe_single.py already running — skipping this run."
+# Bail out if GPU is in heavy use (avoids CUDA OOM competition).
+# Note: pgrep -f is not used — it matches its own command line when the search string appears in it.
+GPU_MB=$(nvidia-smi --query-compute-apps=used_memory --format=csv,noheader,nounits 2>/dev/null | awk '{s+=$1} END{print (s+0)}')
+if [ "$GPU_MB" -gt 2000 ]; then
+    log "GPU busy (${GPU_MB}MB in use) — skipping this run."
     log "--- Watchdog done ---"
     exit 0
 fi
