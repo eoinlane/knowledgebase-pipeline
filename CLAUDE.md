@@ -145,6 +145,9 @@ The name expansion table inside `identify_speakers.py` maps category-specific mi
 | ollama-box | `192.168.0.70:11434`, Debian 13 bhyve VM on FreeBSD (192.168.0.14), RTX 4060 8GB, `qwen2.5:14b` (~8 tok/s, ~13s/classification). Start VM: `ssh eoin@192.168.0.14 "echo el \| sudo -S vm start ollama-box"` |
 | WhisperX | Ubuntu RTX 5060 Ti 16GB, model `large-v3`, CUDA float16. `watch-and-transcribe.sh` handles new files via inotify; `watchdog-transcribe.sh` runs every 30 min via systemd timer to catch misses and retry failed classifications |
 | WhisperX env | Ubuntu `~/whisper-env/` — always activate before running transcription scripts |
+| FreeBSD host | `eoin@192.168.0.14`, Ryzen 5 5600G, 32GB RAM, runs ollama-box bhyve VM. Start VM: `sudo vm start ollama-box` |
+| Health check | `~/.local/bin/pipeline-health-check.sh` (Mac, hourly via launchd). Monitors: Ubuntu SSH, FreeBSD SSH, ollama-box API + GPU, services, backlog, watchdog, stale transcriptions |
+| Benchmark | `python3 benchmark_models.py --model <name>` — reproducible speed+quality comparison on 8 curated transcripts |
 
 ## KB File Conventions
 
