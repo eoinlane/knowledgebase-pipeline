@@ -146,7 +146,13 @@ else
     log "Speaker ID FAILED — $stem"
 fi
 
-# ── Step 6: Extract insights ────────────────────────────────────────────────
+# ── Step 6: Reclassify by speaker ────────────────────────────────────────────
+log "Reclassifying $stem by speaker..."
+source "$VENV/bin/activate"
+python3 /home/eoin/reclassify_by_speaker.py "$txt" "$CSV_PATH" >> "$LOG" 2>&1
+deactivate
+
+# ── Step 7: Extract insights ────────────────────────────────────────────────
 log "Extracting insights for $stem..."
 ollama_ensure_responsive || { log "Skipping insights — Ollama unresponsive"; }
 source "$VENV/bin/activate"
