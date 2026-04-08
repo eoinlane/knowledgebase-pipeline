@@ -62,11 +62,29 @@ ssh eoin@nvidiaubuntubox "systemctl is-active notes-watcher && systemctl --user 
 
 ## Architecture
 
+### Repository Structure
+
+```
+ubuntu/          — scripts that run on Ubuntu GPU box
+mac/             — scripts that run on Mac
+mac/launchd/     — Mac launchd agent scripts
+shared/          — shared config (OLLAMA_URL, MODEL, PERSON_CATEGORY, name expansions)
+tools/           — benchmark and dev tools
+tests/           — 62 tests (pytest)
+docs/            — proposals and documentation
+benchmark_results/ — benchmark JSON outputs
+Makefile         — deploy-ubuntu, deploy-mac, test, clean-ubuntu
+```
+
+**Deployment:** Scripts run via symlinks from `~/` to the repo. `make deploy-ubuntu` rsyncs `ubuntu/` + `shared/` to Ubuntu and creates symlinks. `make deploy-mac` symlinks Mac scripts. Never edit scripts at `~/` directly — edit in the repo, then deploy.
+
 ### Mac vs Ubuntu Split
 
-Scripts that run on **Ubuntu** (GPU required): `transcribe_single.py`, `identify_speakers.py`, `review_speakers.py`, `batch_identify_speakers.py`, `watch-and-transcribe.sh`, `watchdog-transcribe.sh`. These are deployed by copying to `~/` on Ubuntu — they do not run from the repo path.
+Scripts in **`ubuntu/`** (GPU required): `transcribe_single.py`, `classify_transcript.py`, `identify_speakers.py`, `reclassify_by_speaker.py`, `extract_meeting_insights.py`, `batch_identify_speakers.py`, `review_speakers.py`, `watch-and-transcribe.sh`, `watchdog-transcribe.sh`.
 
-Scripts that run on **Mac**: `build_knowledge_base.py`, `build_contacts_db.py`, `contacts_viewer.py`, `apply_kb_corrections.py`, `process_inbox.py`, `upload_knowledge_base_incremental.py`.
+Scripts in **`mac/`**: `build_knowledge_base.py`, `build_contacts_db.py`, `contacts_viewer.py`, `apply_kb_corrections.py`, `process_inbox.py`, `upload_knowledge_base_incremental.py`.
+
+**`shared/config.py`** has OLLAMA_URL, MODEL, PERSON_CATEGORY (person→category mapping), KEEP_CATEGORIES. **`shared/name_expansions.py`** has WhisperX mishearing→full name tables per category. Both imported by Ubuntu and Mac scripts with fallback to hardcoded values.
 
 ### Data Flow
 
@@ -139,9 +157,23 @@ All reads from `~/Library/Mobile Documents/com~apple~CloudDocs/` go through `icl
 1. Voice matching: cosine similarity of ECAPA-TDNN embeddings against `~/voice_catalog.json` (≥0.80 = high confidence, ≥0.70 = medium)
 2. LLM fallback: qwen2.5:14b (via ollama-box) with calendar attendees, name-call cues from transcript, and speech samples from `~/speaker_registry.json`
 
-The name expansion table inside `identify_speakers.py` maps category-specific mishearings to full names (e.g. DCC: `"kizzer"` → `"Khizer Ahmed Biyabani"`). The script body is wrapped in `if __name__ == "__main__":` so functions are importable for testing.
+The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"` → `"Khizer Ahmed Biyabani"`, DFB: `"rob hell"` → `"Rob Howell"`). The script body is wrapped in `if __name__ == "__main__":` so functions are importable for testing.
 
-`transcribe_single.py` uses WhisperX `large-v3` with post-processing `dedupe_segments()` to strip hallucinated repeated segments. Also extracts ECAPA-TDNN voice embeddings per speaker. LLM inference (classification + speaker ID) runs on ollama-box (192.168.0.70), completely separate from the Ubuntu transcription GPU.
+### Pipeline Steps (Ubuntu watchdog)
+
+```
+1. Transcribe (WhisperX large-v3, RTX 5060 Ti) → .txt + voice embeddings
+2. Classify (qwen2.5:14b via ollama-box) → category, topic, summary, key_people → CSV
+3. Speaker ID → voice catalog match first, LLM fallback for unknowns → rewrite transcript
+4. Reclassify by speaker → if voice-identified speakers map to one category, override LLM
+5. Extract insights (qwen2.5:14b) → action items, decisions, follow-ups, open questions → JSON
+```
+
+### Voice Catalog (Ubuntu ~/voice_catalog.json)
+
+22 people enrolled via 2-speaker call elimination (Eoin as anchor), calendar matching, and transcript name extraction. Grows automatically as new recordings are processed and confirmed. `reclassify_by_speaker.py` uses `shared/config.py:PERSON_CATEGORY` to override LLM categories based on who's speaking.
+
+`transcribe_single.py` uses WhisperX `large-v3` with post-processing `dedupe_segments()` to strip hallucinated repeated segments. Also extracts ECAPA-TDNN voice embeddings per speaker. LLM inference (classification + speaker ID + insights) runs on ollama-box (192.168.0.70), completely separate from the Ubuntu transcription GPU.
 
 ## Infrastructure
 

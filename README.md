@@ -15,47 +15,57 @@ Automated pipeline that turns iPhone/Mac voice recordings into a searchable know
 
 ```
 iPhone (Apple Notes voice memo)
-    ↓ rsync every 5 min (launchd, OTHER Mac)
+    ↓ rsync every 5 min (launchd)
 Ubuntu ~/audio-inbox/Notes/       ← .m4a files
     ↓ inotifywait (notes-watcher systemd service)
-transcribe_single.py
-  WhisperX large-v2 + pyannote diarisation → .txt transcript (SPEAKER_XX labels)
-  ECAPA-TDNN voice embeddings → ~/audio-inbox/Embeddings/{UUID}.json
+1. transcribe_single.py  (WhisperX large-v3 + pyannote diarisation)
+   → .txt transcript + ECAPA-TDNN voice embeddings
     ↓
-rsync transcript → Mac iCloud ~/My Notes/
+2. classify_transcript.py  (qwen2.5:14b via ollama-box)
+   → classification.csv  (category, topic, summary, key_people)
     ↓
-classify_transcript.py  (qwen2.5:14b via Ollama)
-  → classification.csv  (category, topic, summary, key_people)
-  → rsync → Mac iCloud ~/My Notes Analysis/
+3. identify_speakers.py  (voice catalog match → LLM fallback)
+   → rewrites transcript SPEAKER_XX → [Real Name]
     ↓
-identify_speakers.py
-  1. Voice match: compare embeddings against ~/voice_catalog.json (cosine sim)
-  2. LLM fallback: deepseek with name-call cues + speech registry examples
-  → rewrites transcript SPEAKER_XX → [Real Name] / [Real Name?]
-  → rsync updated transcript → Mac iCloud ~/My Notes/
-    ↓ launchd WatchPaths trigger (CSV changed)
-build_knowledge_base.py  ← also reads Apple Calendar exports
+4. reclassify_by_speaker.py  (override LLM category from voice-identified speakers)
     ↓
-~/knowledge_base/  (meetings/, people/, topics/)
-    ↓ rsync → Ubuntu ~/knowledge_base/
-upload_knowledge_base_incremental.py
+5. extract_meeting_insights.py  (qwen2.5:14b)
+   → action items, decisions, follow-ups, open questions → JSON
+    ↓ rsync to Mac
+6. build_knowledge_base.py  ← calendar attendees (timestamp match) + insights
+   → ~/knowledge_base/  (meetings/, people/, topics/)
     ↓
-Open WebUI collection (http://100.121.184.27:8080)
+7. upload_knowledge_base_incremental.py → Open WebUI
 ```
 
-## Files
+## Repository Structure
+
+```
+ubuntu/          — scripts that run on Ubuntu GPU box (9 scripts)
+mac/             — scripts that run on Mac (8 scripts)
+mac/launchd/     — launchd agent scripts (7 scripts)
+shared/          — shared config: OLLAMA_URL, MODEL, PERSON_CATEGORY, name expansions
+tools/           — benchmark_models.py
+tests/           — 62 tests (pytest)
+Makefile         — deploy-ubuntu, deploy-mac, test, clean-ubuntu
+```
+
+Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speakers.py`. Deploy with `make deploy-ubuntu` / `make deploy-mac`.
+
+## Key Files
 
 | File | Description |
 |---|---|
-| `transcribe_single.py` | WhisperX transcription + pyannote diarisation. Also extracts ECAPA-TDNN voice embeddings per speaker. Runs on Ubuntu. |
-| `identify_speakers.py` | Maps SPEAKER_XX → real names. Voice catalog match first, LLM fallback for unknowns. Rewrites transcript in-place. Runs on Ubuntu. |
-| `review_speakers.py` | Interactive CLI to confirm/edit speaker mappings. Updates speech registry (LLM few-shot) and voice catalog (embeddings). Runs on Ubuntu. |
-| `batch_identify_speakers.py` | Batch process all existing transcripts overnight. Resumable, skips confirmed. Runs on Ubuntu. |
-| `watch-and-transcribe.sh` | inotifywait loop: transcribe → classify → identify speakers → sync to Mac. |
-| `build_knowledge_base.py` | Builds markdown KB from CSV + calendar data. Content-aware writes (only updates files when content changes). |
-| `upload_knowledge_base_incremental.py` | Incremental upload to Open WebUI — hash-based, self-healing, no mtime drift. |
-| `upload_knowledge_base.py` | Full rebuild upload — deletes and recreates the collection. Used by the 4am cron. |
-| `rebuild-knowledge-base.sh` | 4am launchd job: export calendars → build → rsync → full upload. |
+| `ubuntu/transcribe_single.py` | WhisperX transcription + diarisation + ECAPA-TDNN voice embeddings |
+| `ubuntu/classify_transcript.py` | LLM classification: category, topic, summary, key_people |
+| `ubuntu/identify_speakers.py` | Voice catalog match first, LLM fallback. Rewrites transcript in-place |
+| `ubuntu/reclassify_by_speaker.py` | Override LLM category if voice-identified speakers map to one org |
+| `ubuntu/extract_meeting_insights.py` | Extract action items, decisions, follow-ups, open questions |
+| `ubuntu/watchdog-transcribe.sh` | Systemd timer (30 min): runs full pipeline, retries failures |
+| `mac/build_knowledge_base.py` | Builds markdown KB from CSV + calendar (timestamp-matched attendees) + insights |
+| `mac/launchd/pipeline-health-check.sh` | Hourly: checks Ubuntu, FreeBSD, ollama-box, services, backlog |
+| `shared/config.py` | OLLAMA_URL, MODEL, PERSON_CATEGORY, KEEP_CATEGORIES |
+| `shared/name_expansions.py` | WhisperX mishearing → full name tables per category |
 | `sync-knowledge-base.sh` | Incremental sync triggered by CSV changes via launchd WatchPaths. |
 | `test-pipeline.sh` | 6am health check — verifies all services and sends a macOS notification. |
 | `export-calendars.applescript` | Exports 7 Apple Calendar calendars to `/tmp/cal_*.txt` for KB matching. |
