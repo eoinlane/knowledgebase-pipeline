@@ -10,7 +10,8 @@ MAC_HOST="eoin@100.103.128.44"
 MAC_NOTES_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes"
 MAC_ANALYSIS_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes Analysis"
 CSV_PATH="/home/eoin/audio-inbox/classification.csv"
-export HF_TOKEN="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"
+# HF_TOKEN is set in the systemd service environment (notes-watcher)
+# Do not hardcode secrets in scripts
 
 ollama_unload() {
     : # No-op: model stays warm on dedicated ollama-box GPU
