@@ -20,7 +20,7 @@ UBUNTU_TRANS_DIR = "/home/eoin/audio-inbox/Transcriptions"
 UBUNTU_CSV       = "/home/eoin/audio-inbox/classification.csv"
 
 VALID_CATEGORIES = {
-    "NTA", "DCC", "Diotima", "Paradigm", "ADAPT", "TBS",
+    "NTA", "DCC", "DFB", "Diotima", "Paradigm", "ADAPT", "TBS",
     "other:blank", "other:personal", "other:conference", "other:lgma"
 }
 
