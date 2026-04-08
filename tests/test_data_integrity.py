@@ -143,8 +143,11 @@ class TestKnowledgeBase:
         required_fields = ["date:", "category:", "source_file:"]
         bad = []
         for fname, content in list(kb_meeting_files.items())[:100]:
+            # Extract frontmatter block (between --- markers)
+            fm_end = content.find("\n---", 4)
+            frontmatter = content[:fm_end + 4] if fm_end > 0 else content[:800]
             for field in required_fields:
-                if field not in content[:500]:
+                if field not in frontmatter:
                     bad.append((fname, f"missing {field}"))
                     break
         assert bad == [], f"Meeting files with bad frontmatter: {bad[:5]}"

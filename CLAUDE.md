@@ -71,10 +71,10 @@ Scripts that run on **Mac**: `build_knowledge_base.py`, `build_contacts_db.py`, 
 ### Data Flow
 
 ```
-classification.csv (iCloud)  +  Apple Calendar exports (/tmp/cal_*.txt)
+classification.csv (iCloud)  +  Apple Calendar (AppleScript live export + /tmp/cal_*.txt)
     ↓
-build_knowledge_base.py  →  ~/knowledge_base/meetings/*.md
-                                             people/*.md
+build_knowledge_base.py  →  ~/knowledge_base/meetings/*.md  (attendees from calendar, mentioned from LLM)
+                                             people/*.md    (full names from calendar attendees)
                                              topics/*.md
     ↓
 apply_kb_corrections.py  ←  ~/kb_corrections.json (manual overrides)
@@ -84,6 +84,14 @@ build_contacts_db.py  →  ~/contacts.db  (meetings, people, attendees tables)
     ↓
 upload_knowledge_base_incremental.py  →  Open WebUI
 ```
+
+### KB Meeting Frontmatter
+
+Meeting files now have split people fields:
+- `attendees` — full names from calendar event matching (timestamp-based, ±60 min)
+- `mentioned` — names from LLM `key_people` minus attendees (people discussed but not present)
+- `people` — legacy union of both for backward compatibility
+- Calendar matching uses `zoneinfo` for proper UTC↔Dublin timezone conversion
 
 ### Corrections Layer
 
