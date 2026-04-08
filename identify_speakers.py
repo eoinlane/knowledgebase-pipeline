@@ -61,9 +61,9 @@ CATEGORY_NAME_EXPANSIONS = {
     "Paradigm": {
         "guy": "Guy Rackham",
         "sarah": "Sarah Broderick",
-        "arjit": "Arijit",
-        "arijit": "Arijit",
-        "arjun": "Arijit",
+        "arjit": "Arijit Sircar",
+        "arijit": "Arijit Sircar",
+        "arjun": "Arijit Sircar",
         "eddy": "Eddy Moretti",
         "eddie": "Eddy Moretti",
     },
@@ -72,6 +72,12 @@ CATEGORY_NAME_EXPANSIONS = {
         "khizer": "Khizer Ahmed Biyabani",
         "ashish": "Ashish Rajput",
         "declan": "Declan McKibben",
+    },
+    "TBS": {
+        "kisito": "Kisito Futonge Nzembayie",
+        "kistu": "Kisito Futonge Nzembayie",
+        "stu": "Kisito Futonge Nzembayie",
+        "daniel": "Daniel Coughlan",
     },
 }
 
