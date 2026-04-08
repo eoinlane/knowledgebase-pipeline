@@ -17,10 +17,7 @@ deploy-ubuntu: ## Deploy Ubuntu scripts + shared module to nvidiaubuntubox
 	rsync -az --delete ubuntu/ $(UBUNTU):$(PIPELINE_REMOTE)/ubuntu/
 	rsync -az --delete shared/ $(UBUNTU):$(PIPELINE_REMOTE)/shared/
 	@echo "Symlinking scripts to ~/..."
-	ssh $(UBUNTU) '\
-		for f in $(PIPELINE_REMOTE)/ubuntu/*.py; do ln -sf "$$f" ~/; done && \
-		for f in $(PIPELINE_REMOTE)/ubuntu/*.sh; do ln -sf "$$f" ~/; done && \
-		echo "Deployed $$(ls $(PIPELINE_REMOTE)/ubuntu/*.py | wc -l) scripts"'
+	ssh $(UBUNTU) 'bash -c "for f in $(PIPELINE_REMOTE)/ubuntu/*.py; do ln -sf \$$f ~/; done && for f in $(PIPELINE_REMOTE)/ubuntu/*.sh; do ln -sf \$$f ~/; done && echo Deployed"'
 
 deploy-mac: ## Symlink Mac scripts to ~/
 	ln -sf $(PWD)/mac/build_knowledge_base.py ~/build_knowledge_base.py

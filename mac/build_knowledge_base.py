@@ -411,10 +411,18 @@ for note in notes:
             insights = None
 
     if insights:
-        action_items = [
-            f"{ai['owner']}: {ai['action']}" + (f" (by {ai['deadline']})" if ai.get('deadline') else "")
-            for ai in insights.get("action_items", [])
-        ]
+        action_items = []
+        for ai in insights.get("action_items", []):
+            if isinstance(ai, dict) and ai.get("action"):
+                owner = ai.get("owner", "")
+                action = ai.get("action", "")
+                deadline = ai.get("deadline")
+                item = f"{owner}: {action}" if owner else action
+                if deadline:
+                    item += f" (by {deadline})"
+                action_items.append(item)
+            elif isinstance(ai, str):
+                action_items.append(ai)
     else:
         action_items = extract_action_items(transcript_body)
 
@@ -592,7 +600,7 @@ for note in notes:
             lines.append("## Decisions")
             lines.append("")
             for d in decisions:
-                lines.append(f"- {d}")
+                lines.append(f"- {d}" if isinstance(d, str) else f"- {d}")
             lines.append("")
 
         follow_ups = insights.get("follow_ups", [])
@@ -600,8 +608,12 @@ for note in notes:
             lines.append("## Follow-ups")
             lines.append("")
             for fu in follow_ups:
-                who = f" ({fu['who']})" if fu.get("who") else ""
-                lines.append(f"- {fu['description']}{who}")
+                if isinstance(fu, dict):
+                    desc = fu.get("description", str(fu))
+                    who = f" ({fu['who']})" if fu.get("who") else ""
+                    lines.append(f"- {desc}{who}")
+                else:
+                    lines.append(f"- {fu}")
             lines.append("")
 
         open_qs = insights.get("open_questions", [])
@@ -609,7 +621,7 @@ for note in notes:
             lines.append("## Open Questions")
             lines.append("")
             for q in open_qs:
-                lines.append(f"- {q}")
+                lines.append(f"- {q}" if isinstance(q, str) else f"- {q}")
             lines.append("")
 
         key_topics = insights.get("key_topics", [])
