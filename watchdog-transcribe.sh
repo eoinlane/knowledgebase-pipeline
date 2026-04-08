@@ -146,4 +146,18 @@ else
     log "Speaker ID FAILED — $stem"
 fi
 
+# ── Step 6: Extract insights ────────────────────────────────────────────────
+log "Extracting insights for $stem..."
+ollama_ensure_responsive || { log "Skipping insights — Ollama unresponsive"; }
+source "$VENV/bin/activate"
+python3 /home/eoin/extract_meeting_insights.py "$txt" "$CSV_PATH" >> "$LOG" 2>&1
+STATUS=$?
+deactivate
+
+if [ $STATUS -eq 0 ]; then
+    log "Insights OK — $stem"
+else
+    log "Insights FAILED — $stem"
+fi
+
 log "--- Watchdog done ---"
