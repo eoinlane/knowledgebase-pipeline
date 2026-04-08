@@ -22,10 +22,9 @@ PERSON_CATEGORY = {
     "Philip L'Estrange": "NTA",
     "Ger Regan": "NTA",
     "Neil Sutch": "NTA",
-    "Audrey": "NTA",
+    "Audrey O'Hara": "NTA",
     "Gary White": "NTA",
     "Dominic Hannigan": "NTA",
-    "Hugh": "NTA",
     "Mark McDermott": "NTA",
 
     # DCC
