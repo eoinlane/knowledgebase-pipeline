@@ -17,7 +17,6 @@ import sys, os, re, csv, json
 PERSON_CATEGORY = {
     # NTA
     "Cathal Bellew": "NTA",
-    "Cathal Murphy": "NTA",
     "Declan Sheehan": "NTA",
     "Alex McKenzie": "NTA",
     "Philip L'Estrange": "NTA",

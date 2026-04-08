@@ -44,8 +44,8 @@ CATEGORY_NAME_EXPANSIONS = {
         "ashish": "Ashish Rajput",
     },
     "NTA": {
-        "cathal": "Cathal Murphy",
-        "cahal": "Cathal Murphy",
+        "cathal": "Cathal Bellew",
+        "cahal": "Cathal Bellew",
         "declan": "Declan Sheehan",
         "neil": "Neil",
         "mark": "Mark",
