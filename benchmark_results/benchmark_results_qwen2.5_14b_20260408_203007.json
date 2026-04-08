@@ -1,0 +1,342 @@
+{
+  "model": "qwen2.5:14b",
+  "timestamp": "20260408_203007",
+  "results": [
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 5.8,
+      "eval_count": 39,
+      "eval_duration": 4.5,
+      "tok_per_sec": 8.7,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 683,
+      "load_duration": 0.08,
+      "output": {
+        "category": "other:blank",
+        "topic": "none",
+        "summary": "The recording contains no speech or meaningful content.",
+        "key_people": ""
+      },
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7",
+      "ground_truth_cat": "other:blank",
+      "cat_match": "exact",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 10.4,
+      "eval_count": 75,
+      "eval_duration": 9.0,
+      "tok_per_sec": 8.3,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 1276,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:personal",
+        "topic": "vacation schedules and personal updates",
+        "summary": "The conversation primarily revolves around the start of school vacations for children, comparing American and European vacation schedules. The discussion also briefly touches on political topics and a call with the Rocket team.",
+        "key_people": "Eoin Lane"
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF",
+      "ground_truth_cat": "Paradigm",
+      "cat_match": "mismatch",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 14.8,
+      "eval_count": 106,
+      "eval_duration": 13.3,
+      "tok_per_sec": 8.0,
+      "think_overhead_pct": 0,
+      "speaker_count": 4,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "medium"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "medium"
+        },
+        "SPEAKER_04": {
+          "name": null,
+          "confidence": "medium"
+        }
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 8.7,
+      "eval_count": 28,
+      "eval_duration": 3.7,
+      "tok_per_sec": 7.7,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3274,
+      "load_duration": 0.08,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06",
+      "ground_truth_cat": "DCC",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 9.4,
+      "eval_count": 47,
+      "eval_duration": 6.4,
+      "tok_per_sec": 7.3,
+      "think_overhead_pct": 0,
+      "speaker_count": 2,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": "Jonathan",
+          "confidence": "medium"
+        }
+      },
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 15.0,
+      "eval_count": 80,
+      "eval_duration": 10.8,
+      "tok_per_sec": 7.4,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2784,
+      "load_duration": 0.1,
+      "output": {
+        "category": "Diotima",
+        "topic": "Textbook Chunking Problem",
+        "summary": "Eoin and Carl discuss the progress on chunking problems in a textbook recommended by Siobhan. They explore accessing sample chapters and consider alternative books or older versions for testing purposes.",
+        "key_people": "Eoin Lane, Carl, Siobhan"
+      },
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A",
+      "ground_truth_cat": "Diotima",
+      "cat_match": "exact",
+      "kp_overlap": 0.4
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 13.9,
+      "eval_count": 78,
+      "eval_duration": 10.4,
+      "tok_per_sec": 7.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2787,
+      "load_duration": 0.09,
+      "output": {
+        "category": "NTA",
+        "topic": "AI strategy and governance",
+        "summary": "Eoin Lane discusses potential AI use cases with colleagues at the NTA, focusing on passenger rights and data protection. The meeting also covers the importance of tracking progress in AI initiatives.",
+        "key_people": "Owen Lane, Fiona, Sam, Kevin"
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A",
+      "ground_truth_cat": "NTA",
+      "cat_match": "exact",
+      "kp_overlap": 0.14
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 17.2,
+      "eval_count": 114,
+      "eval_duration": 14.5,
+      "tok_per_sec": 7.9,
+      "think_overhead_pct": 0,
+      "speaker_count": 5,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": "Fiona",
+          "confidence": "medium"
+        },
+        "SPEAKER_02": {
+          "name": "Alex",
+          "confidence": "medium"
+        },
+        "SPEAKER_03": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_04": {
+          "name": "Declan",
+          "confidence": "low"
+        }
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 16.0,
+      "eval_count": 84,
+      "eval_duration": 11.3,
+      "tok_per_sec": 7.4,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2592,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:personal",
+        "topic": "family and work discussions",
+        "summary": "Eoin and Declan discuss family matters including children's ages and school policies regarding phones. They also touch on work-related topics such as a successful presentation at a county council and the challenges of AI legislation.",
+        "key_people": "Eoin Lane, Declan McKibben"
+      },
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7",
+      "ground_truth_cat": "ADAPT",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 17.0,
+      "eval_count": 106,
+      "eval_duration": 14.1,
+      "tok_per_sec": 7.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2366,
+      "load_duration": 0.09,
+      "output": {
+        "category": "DCC",
+        "topic": "AI Workshop and Proof of Concepts",
+        "summary": "Eoin discusses the progress of AI workshops and proof-of-concept projects within Dublin City Council (DCC). The focus is on identifying challenges in various business units, prioritizing ideas for AI implementation, and developing POCs to assess feasibility. Eoin mentions a workshop where participants were introduced to AI concepts and tasked with generating problem statements.",
+        "key_people": "Eoin Lane"
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF",
+      "ground_truth_cat": "DCC",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 10.5,
+      "eval_count": 66,
+      "eval_duration": 8.4,
+      "tok_per_sec": 7.9,
+      "think_overhead_pct": 0,
+      "speaker_count": 3,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "medium"
+        }
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 14.4,
+      "eval_count": 76,
+      "eval_duration": 10.1,
+      "tok_per_sec": 7.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2800,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:personal",
+        "topic": "Personal Home and Family Discussion",
+        "summary": "Eoin Lane discusses his home life in Dublin with Conor and Chris. They talk about living conditions, family, and the challenges of raising children in a rapidly changing world.",
+        "key_people": "Eoin Lane, Conor, Chris"
+      },
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1",
+      "ground_truth_cat": "other:personal",
+      "cat_match": "exact",
+      "kp_overlap": 0.5
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1"
+    }
+  ]
+}

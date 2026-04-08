@@ -5,8 +5,10 @@ Tests pure functions from identify_speakers.py using real data.
 import os, sys, re, json, pytest
 import numpy as np
 
-# Add pipeline root to path so we can import the scripts
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Add pipeline root and ubuntu/ to path so we can import the scripts
+_repo_root = os.path.dirname(os.path.dirname(__file__))
+sys.path.insert(0, _repo_root)
+sys.path.insert(0, os.path.join(_repo_root, "ubuntu"))
 
 from identify_speakers import (
     cosine_sim,
