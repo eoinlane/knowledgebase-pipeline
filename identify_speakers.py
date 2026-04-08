@@ -58,6 +58,11 @@ CATEGORY_NAME_EXPANSIONS = {
         "mahsa": "Mahsa Mahdinejad",
         "birva": "Birva Mehta",
     },
+    "DFB": {
+        "rob": "Rob Howell",
+        "rob hell": "Rob Howell",
+        "robert": "Rob Howell",
+    },
     "Paradigm": {
         "guy": "Guy Rackham",
         "sarah": "Sarah Broderick",

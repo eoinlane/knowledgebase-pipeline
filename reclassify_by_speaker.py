@@ -39,6 +39,9 @@ PERSON_CATEGORY = {
     "Declan McKibben": "ADAPT",
     "Khizer Ahmed Biyabani": "ADAPT",
 
+    # DFB
+    "Rob Howell": "DFB",
+
     # Diotima
     "Siobhan Ryan": "Diotima",
     "Jonathan Dempsey": "Diotima",
