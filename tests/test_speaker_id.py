@@ -70,7 +70,7 @@ class TestExpandNames:
 
     def test_nta_cathal(self):
         result = expand_names("cathal", "NTA")
-        assert result == "Cathal Murphy"
+        assert result == "Cathal Bellew"
 
     def test_diotima_masa(self):
         result = expand_names("masa", "Diotima")
@@ -118,7 +118,7 @@ class TestExtractNameCues:
             "[SPEAKER_00] 00:01 - Hey Eoin, how are you doing?",
             "[SPEAKER_00] 00:10 - Cathal, what do you think about this?",
         ])
-        cues = extract_name_cues(content, ["Eoin Lane", "Cathal Murphy", "Declan Sheehan"], "NTA")
+        cues = extract_name_cues(content, ["Eoin Lane", "Cathal Bellew", "Declan Sheehan"], "NTA")
         assert any("HARD CONSTRAINT" in c and "SPEAKER_00" in c for c in cues), \
             f"Expected HARD CONSTRAINT for SPEAKER_00 addressing 2+ people, got: {cues}"
 
@@ -126,7 +126,7 @@ class TestExtractNameCues:
         content = self._make_transcript([
             "[SPEAKER_01] 00:01 - Thanks Eoin, that makes sense.",
         ])
-        cues = extract_name_cues(content, ["Eoin Lane", "Cathal Murphy"], "NTA")
+        cues = extract_name_cues(content, ["Eoin Lane", "Cathal Bellew"], "NTA")
         assert any("HINT" in c and "SPEAKER_01" in c for c in cues), \
             f"Expected HINT for SPEAKER_01 mentioning one name, got: {cues}"
 
@@ -135,7 +135,7 @@ class TestExtractNameCues:
             "[SPEAKER_00] 00:01 - The project looks good.",
             "[SPEAKER_01] 00:10 - Yes I agree completely.",
         ])
-        cues = extract_name_cues(content, ["Eoin Lane", "Cathal Murphy"], "NTA")
+        cues = extract_name_cues(content, ["Eoin Lane", "Cathal Bellew"], "NTA")
         assert cues == []
 
     def test_dcc_nickname_expansion_in_cues(self):
@@ -155,7 +155,7 @@ class TestExtractNameCues:
         content = self._make_transcript([
             "[SPEAKER_01] 00:01 - Owen, what's your view on that?",
         ])
-        cues = extract_name_cues(content, ["Eoin Lane", "Cathal Murphy"], "NTA")
+        cues = extract_name_cues(content, ["Eoin Lane", "Cathal Bellew"], "NTA")
         assert any("Eoin Lane" in c for c in cues)
 
 
@@ -272,7 +272,7 @@ class TestVoiceMatch:
 
         catalog = {
             "Eoin Lane": {"embeddings": [close_arr.tolist()]},
-            "Cathal Murphy": {"embeddings": [far]},
+            "Cathal Bellew": {"embeddings": [far]},
         }
         uuid = "TEST-UUID-005"
         data = {"SPEAKER_00": {"embedding": base, "n_segments": 5}}

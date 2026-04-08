@@ -1,0 +1,182 @@
+{
+  "model": "qwen2.5:14b",
+  "timestamp": "20260407_222957",
+  "results": [
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 90.3,
+      "eval_count": 28,
+      "eval_duration": 3.3,
+      "tok_per_sec": 8.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 683,
+      "load_duration": 85.75,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7",
+      "ground_truth_cat": "other:blank",
+      "cat_match": "exact",
+      "kp_overlap": null
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 79.3,
+      "eval_count": 59,
+      "eval_duration": 7.8,
+      "tok_per_sec": 7.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 1276,
+      "load_duration": 69.47,
+      "output": {
+        "category": "other:personal",
+        "topic": "vacation schedules and personal matters",
+        "summary": "Discussion about children's vacation schedules in Europe versus America, followed by political commentary and unrelated email updates.",
+        "key_people": "Eoin Lane"
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF",
+      "ground_truth_cat": "Paradigm",
+      "cat_match": "mismatch",
+      "kp_overlap": null
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 8.0,
+      "eval_count": 28,
+      "eval_duration": 3.8,
+      "tok_per_sec": 7.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3274,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06",
+      "ground_truth_cat": "DCC",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 16.7,
+      "eval_count": 97,
+      "eval_duration": 13.2,
+      "tok_per_sec": 7.4,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2784,
+      "load_duration": 0.09,
+      "output": {
+        "category": "Diotima",
+        "topic": "Textbook Access for AI Project",
+        "summary": "Eoin Lane and Carl discuss accessing a specific textbook, 'The Science of Life' by C.J. Fellin, recommended by Siobhan for an AI project. They explore various ways to obtain the book's content in digital format but face licensing issues.",
+        "key_people": "Eoin Lane, Carl, Siobhan"
+      },
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A",
+      "ground_truth_cat": "Diotima",
+      "cat_match": "exact",
+      "kp_overlap": 0.4
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 14.7,
+      "eval_count": 81,
+      "eval_duration": 11.1,
+      "tok_per_sec": 7.3,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2787,
+      "load_duration": 0.07,
+      "output": {
+        "category": "NTA",
+        "topic": "AI strategy and governance discussion",
+        "summary": "Eoin Lane discusses potential AI use cases with Fiona, Sam, Colin, and Kevin. The conversation covers the organization's AI strategy, governance, and specific use cases related to transport regulation.",
+        "key_people": "Owen Lane,Fiona,Sam,Kevin"
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A",
+      "ground_truth_cat": "NTA",
+      "cat_match": "exact",
+      "kp_overlap": 0.14
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 14.3,
+      "eval_count": 82,
+      "eval_duration": 11.2,
+      "tok_per_sec": 7.3,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2592,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:personal",
+        "topic": "family and work discussions",
+        "summary": "Eoin Lane and Declan McKibben discuss family matters including children's ages and school policies, as well as work-related topics such as a successful presentation at a county council and AI legislation.",
+        "key_people": "Eoin Lane, Declan McKibben"
+      },
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7",
+      "ground_truth_cat": "ADAPT",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 17.7,
+      "eval_count": 111,
+      "eval_duration": 14.8,
+      "tok_per_sec": 7.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2366,
+      "load_duration": 0.1,
+      "output": {
+        "category": "DCC",
+        "topic": "AI Workshop and Proof of Concepts",
+        "summary": "Eoin discusses the progress of AI workshops and proof-of-concept projects within Dublin City Council (DCC). The team has conducted workshops to identify challenges in various business units, prioritize ideas based on feasibility and impact, and develop POCs using models like Gemini. They aim to create a generative AI guidebook for staff and assess AI readiness across the organization.",
+        "key_people": "Eoin Lane"
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF",
+      "ground_truth_cat": "DCC",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 15.0,
+      "eval_count": 84,
+      "eval_duration": 11.3,
+      "tok_per_sec": 7.4,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2800,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:personal",
+        "topic": "Personal Chat and Home Life Discussion",
+        "summary": "Eoin Lane and others discuss personal matters including home locations, living conditions, family life, and concerns about the future. The conversation includes mentions of living in IFSC, having children, and reflections on lifestyle differences.",
+        "key_people": "Eoin Lane, Conor"
+      },
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1",
+      "ground_truth_cat": "other:personal",
+      "cat_match": "exact",
+      "kp_overlap": 0.25
+    }
+  ]
+}
