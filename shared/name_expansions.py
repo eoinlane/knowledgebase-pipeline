@@ -8,6 +8,8 @@ CATEGORY_NAME_EXPANSIONS = {
     "DCC": {
         "chris": "Christopher Kelly",
         "christopher": "Christopher Kelly",
+        "ray": "Re Dubhthaigh",
+        "ray duffy": "Re Dubhthaigh",
         "kizzer": "Khizer Ahmed Biyabani",
         "khizer": "Khizer Ahmed Biyabani",
         "kizer": "Khizer Ahmed Biyabani",

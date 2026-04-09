@@ -29,6 +29,8 @@ PERSON_CATEGORY = {
     "Mark McDermott": "NTA",
 
     # DCC
+    "Re Dubhthaigh": "DCC",
+    "Ray Duffy": "DCC",  # Re Dubhthaigh's English name
     "Christopher Kelly": "DCC",
     "Richie Shakespeare": "DCC",
     "Shunyu Ji": "DCC",
