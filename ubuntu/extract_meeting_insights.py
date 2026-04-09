@@ -19,6 +19,11 @@ try:
 except ImportError:
     OLLAMA_URL = "http://192.168.0.70:11434/api/chat"
     MODEL = "qwen2.5:14b"
+
+# LiteLLM proxy for Claude Haiku (200K context, better extraction quality)
+LITELLM_URL = "http://localhost:4000/v1/chat/completions"
+LITELLM_MODEL = "claude-haiku-4-5"
+USE_LITELLM = True  # Use Haiku for extraction, fall back to Ollama if unavailable
 INSIGHTS_DIR = os.path.expanduser("~/audio-inbox/Insights")
 os.makedirs(INSIGHTS_DIR, exist_ok=True)
 
@@ -57,7 +62,27 @@ Rules:
 - If the transcript is too short or has no substantive content, return empty lists"""
 
 
+def call_litellm(messages):
+    """Call Claude Haiku via LiteLLM proxy. 200K context, better JSON output."""
+    payload = json.dumps({
+        "model": LITELLM_MODEL,
+        "messages": messages,
+        "temperature": 0,
+    }).encode()
+
+    req = urllib.request.Request(
+        LITELLM_URL,
+        data=payload,
+        headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        result = json.loads(resp.read())
+    # OpenAI-compatible response format
+    return {"message": result["choices"][0]["message"]}
+
+
 def call_ollama(messages):
+    """Call Ollama (fallback if LiteLLM unavailable)."""
     payload = json.dumps({
         "model": MODEL,
         "messages": messages,
@@ -75,17 +100,31 @@ def call_ollama(messages):
         return json.loads(resp.read())
 
 
+def call_llm(messages):
+    """Call LiteLLM (Haiku) if available, fall back to Ollama."""
+    if USE_LITELLM:
+        try:
+            return call_litellm(messages)
+        except Exception as e:
+            print(f"  LiteLLM unavailable ({e}), falling back to Ollama")
+    return call_ollama(messages)
+
+
 def extract_insights(transcript_text):
-    """Send full transcript to LLM for insight extraction."""
-    # qwen2.5:14b has 32K context (~24K chars safe). Send as much transcript as possible.
-    content = transcript_text[:24000]
+    """Send transcript to LLM for insight extraction.
+    Haiku (via LiteLLM): sends full transcript (200K context).
+    Ollama fallback: caps at 24K chars (32K context limit)."""
+    if USE_LITELLM:
+        content = transcript_text  # Haiku handles 200K context — send everything
+    else:
+        content = transcript_text[:24000]
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Extract insights from this meeting transcript:\n\n{content}"}
     ]
 
-    result = call_ollama(messages)
+    result = call_llm(messages)
     raw = result["message"]["content"].strip()
 
     # Strip any <think> tags (in case model is swapped to a reasoning model)
@@ -103,7 +142,7 @@ def extract_insights(transcript_text):
     messages.append({"role": "assistant", "content": raw[:200]})
     messages.append({"role": "user", "content": "Reformat your response as ONLY a JSON object with keys: action_items, decisions, follow_ups, open_questions, key_topics. No prose."})
 
-    result = call_ollama(messages)
+    result = call_llm(messages)
     raw2 = result["message"]["content"].strip()
     raw2 = re.sub(r"<think>.*?</think>", "", raw2, flags=re.DOTALL).strip()
     jm2 = re.search(r"\{.*\}", raw2, re.DOTALL)
