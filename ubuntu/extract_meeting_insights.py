@@ -22,14 +22,16 @@ except ImportError:
 INSIGHTS_DIR = os.path.expanduser("~/audio-inbox/Insights")
 os.makedirs(INSIGHTS_DIR, exist_ok=True)
 
-SYSTEM_PROMPT = """You extract structured insights from meeting transcripts. The transcript has speaker names in brackets.
+SYSTEM_PROMPT = """You extract structured insights from meeting transcripts. The transcript has speaker names in square brackets like [Eoin Lane] or [Ray Duffy].
+
+IMPORTANT: Only use names that actually appear in the transcript inside square brackets (e.g. [Eoin Lane], [Ray Duffy]). NEVER invent names. If you cannot identify who owns an action, use "unknown" as the owner. For introductory meetings, focus on what was learned and what needs to happen next rather than formal action items.
 
 Extract the following. Be specific — include names, dates, and concrete details. If a field has no items, return an empty list.
 
 OUTPUT: Respond with ONLY a JSON object:
 {
   "action_items": [
-    {"owner": "Person Name", "action": "what they committed to do", "deadline": "by when, or null"}
+    {"owner": "Person Name from transcript", "action": "what they committed to do", "deadline": "by when, or null"}
   ],
   "decisions": [
     "Specific decision that was made or agreed"
@@ -75,8 +77,8 @@ def call_ollama(messages):
 
 def extract_insights(transcript_text):
     """Send full transcript to LLM for insight extraction."""
-    # Cap at 12000 chars to stay within context window but get much more than classify's 6000
-    content = transcript_text[:12000]
+    # qwen2.5:14b has 32K context (~24K chars safe). Send as much transcript as possible.
+    content = transcript_text[:24000]
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
