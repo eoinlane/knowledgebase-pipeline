@@ -8,6 +8,8 @@ CATEGORY_NAME_EXPANSIONS = {
     "DCC": {
         "chris": "Christopher Kelly",
         "christopher": "Christopher Kelly",
+        "sean": "Shunyu Ji",
+        "shawn": "Shunyu Ji",
         "ray": "Re Dubhthaigh",
         "ray duffy": "Re Dubhthaigh",
         "kizzer": "Khizer Ahmed Biyabani",
@@ -49,6 +51,8 @@ CATEGORY_NAME_EXPANSIONS = {
         "khizer": "Khizer Ahmed Biyabani",
         "ashish": "Ashish Rajput",
         "declan": "Declan McKibben",
+        "sean": "Shunyu Ji",
+        "shawn": "Shunyu Ji",
     },
     "TBS": {
         "kisito": "Kisito Futonge Nzembayie",
