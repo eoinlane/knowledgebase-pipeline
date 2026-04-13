@@ -14,6 +14,7 @@ Run after build_contacts_db.py:
   python3 ~/knowledgebase-pipeline/mac/build_graph.py
 """
 
+import datetime
 import json
 import os
 import re
@@ -28,6 +29,8 @@ KB_DIR = Path.home() / "knowledge_base" / "meetings"
 INSIGHTS_DIR = "/tmp/kb_insights"
 CONTACTS_DB = Path.home() / "contacts.db"
 GRAPH_DB = Path.home() / "graph.db"
+CLOSURES_FILE = Path.home() / ".graph_closures.json"
+STALE_WEEKS = 8
 
 
 def rsync_insights():
@@ -467,13 +470,43 @@ def build_graph():
                     stats["edges"] += 1
                     stats["transcript_people"] += 1
 
+    # --- Auto-age: mark items older than STALE_WEEKS as 'stale' ---
+    cutoff = (datetime.date.today() - datetime.timedelta(weeks=STALE_WEEKS)).isoformat()
+    stale_count = conn.execute(
+        "UPDATE action_items SET status = 'stale' WHERE status = 'open' AND meeting_filename < ?",
+        (cutoff,)
+    ).rowcount
+
+    # --- Apply manual closures from ~/.graph_closures.json ---
+    closures_applied = 0
+    if CLOSURES_FILE.exists():
+        try:
+            with open(CLOSURES_FILE) as f:
+                closures = json.load(f)
+            for key, status in closures.items():
+                # Key format: "meeting_filename::action text prefix"
+                parts = key.split("::", 1)
+                if len(parts) == 2:
+                    meeting_fn, text_prefix = parts
+                    n = conn.execute(
+                        "UPDATE action_items SET status = ? WHERE meeting_filename = ? AND text LIKE ?",
+                        (status, meeting_fn, text_prefix + "%")
+                    ).rowcount
+                    closures_applied += n
+        except (json.JSONDecodeError, OSError):
+            pass
+
     conn.commit()
     conn.close()
+
+    open_count = sqlite3.connect(GRAPH_DB).execute(
+        "SELECT COUNT(*) FROM action_items WHERE status = 'open'"
+    ).fetchone()[0]
 
     print(f"\nDone — {GRAPH_DB}")
     print(f"  {stats['meetings']} meetings processed")
     print(f"  {stats['matched']} matched to insights ({stats['meetings'] - stats['matched']} without insights)")
-    print(f"  {stats['actions']} action items")
+    print(f"  {stats['actions']} action items ({open_count} open, {stale_count} auto-staled, {closures_applied} manually closed)")
     print(f"  {stats['decisions']} decisions")
     print(f"  {stats['edges']} graph edges")
     print(f"  People enrichment: {stats['insights_people']} from insights, {stats['transcript_people']} from transcript scan")

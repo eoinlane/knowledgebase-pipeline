@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import sqlite3
 import sys
@@ -24,6 +25,7 @@ from pathlib import Path
 
 GRAPH_DB = Path.home() / "graph.db"
 CONTACTS_DB = Path.home() / "contacts.db"
+CLOSURES_FILE = Path.home() / ".graph_closures.json"
 
 
 def get_conn(db_path):
@@ -225,6 +227,22 @@ def cmd_stats(args):
     conn.close()
 
 
+def save_closure(meeting_filename, text, status="closed"):
+    """Persist a closure to ~/.graph_closures.json so it survives rebuilds."""
+    closures = {}
+    if CLOSURES_FILE.exists():
+        try:
+            with open(CLOSURES_FILE) as f:
+                closures = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Key by meeting_filename::text_prefix (first 80 chars for robustness)
+    key = f"{meeting_filename}::{text[:80]}"
+    closures[key] = status
+    with open(CLOSURES_FILE, "w") as f:
+        json.dump(closures, f, indent=2)
+
+
 def meeting_date(filename):
     """Extract date string from meeting filename."""
     return filename.split("_")[0] if "_" in filename else ""
@@ -421,7 +439,7 @@ def cmd_done(args):
     # Try as numeric ID first
     try:
         item_id = int(target)
-        row = conn.execute("SELECT id, text, owner, status FROM action_items WHERE id = ?", (item_id,)).fetchone()
+        row = conn.execute("SELECT id, meeting_filename, text, owner, status FROM action_items WHERE id = ?", (item_id,)).fetchone()
         if not row:
             print(f"No action item with ID #{item_id}")
             conn.close()
@@ -432,6 +450,7 @@ def cmd_done(args):
             return
         conn.execute("UPDATE action_items SET status = 'closed' WHERE id = ?", (item_id,))
         conn.commit()
+        save_closure(row["meeting_filename"], row["text"])
         owner = row["owner"] or "unassigned"
         print(f"Closed #{item_id}: {owner}: {row['text']}")
         conn.close()
@@ -455,6 +474,7 @@ def cmd_done(args):
         r = rows[0]
         conn.execute("UPDATE action_items SET status = 'closed' WHERE id = ?", (r["id"],))
         conn.commit()
+        save_closure(r["meeting_filename"], r["text"])
         owner = r["owner"] or "unassigned"
         print(f"Closed #{r['id']}: {owner}: {r['text']}")
     else:
