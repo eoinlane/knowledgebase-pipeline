@@ -1,0 +1,483 @@
+#!/usr/bin/env python3
+"""
+build_graph.py — Build graph.db from KB meeting frontmatter + insights JSONs.
+
+Reads:
+  ~/knowledge_base/meetings/*.md   (frontmatter: source_file, category, date, attendees, mentioned)
+  /tmp/kb_insights/*.json          (action_items, decisions, follow_ups, open_questions)
+  ~/contacts.db                    (meetings table for filename→id mapping)
+
+Outputs:
+  ~/graph.db  (decisions, action_items, graph_edges, concepts tables)
+
+Run after build_contacts_db.py:
+  python3 ~/knowledgebase-pipeline/mac/build_graph.py
+"""
+
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
+
+import yaml
+
+KB_DIR = Path.home() / "knowledge_base" / "meetings"
+INSIGHTS_DIR = "/tmp/kb_insights"
+CONTACTS_DB = Path.home() / "contacts.db"
+GRAPH_DB = Path.home() / "graph.db"
+
+
+def rsync_insights():
+    """Pull insights JSONs from Ubuntu to /tmp/kb_insights/."""
+    os.makedirs(INSIGHTS_DIR, exist_ok=True)
+    try:
+        subprocess.run(
+            ["rsync", "-az", "--timeout=10",
+             "eoin@nvidiaubuntubox:~/audio-inbox/Insights/", INSIGHTS_DIR + "/"],
+            timeout=30, capture_output=True
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass  # Use whatever was already synced
+
+
+def parse_frontmatter_and_body(filepath):
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+    if not content.startswith("---"):
+        return {}, content
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        return {}, content
+    try:
+        return yaml.safe_load(parts[1]) or {}, parts[2]
+    except yaml.YAMLError:
+        return {}, content
+
+
+def parse_people_field(field):
+    """Handle both ["Name1", "Name2"] and ["Name1, Name2"] YAML formats."""
+    if not field:
+        return []
+    names = []
+    for item in field:
+        for name in re.split(r"[;,]", item):
+            name = name.strip()
+            if name:
+                names.append(name)
+    return names
+
+
+def slugify(name):
+    return re.sub(r"[\s_-]+", "-", name.lower()).strip("-")
+
+
+def init_db(conn):
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS decisions (
+            id               INTEGER PRIMARY KEY,
+            meeting_filename TEXT,
+            text             TEXT,
+            status           TEXT DEFAULT 'open',
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS action_items (
+            id               INTEGER PRIMARY KEY,
+            meeting_filename TEXT,
+            text             TEXT,
+            owner            TEXT,
+            status           TEXT DEFAULT 'open',
+            due_date         TEXT,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS graph_edges (
+            id          INTEGER PRIMARY KEY,
+            from_type   TEXT,
+            from_id     TEXT,
+            edge_type   TEXT,
+            to_type     TEXT,
+            to_id       TEXT,
+            confidence  REAL DEFAULT 1.0,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS concepts (
+            id            INTEGER PRIMARY KEY,
+            label         TEXT UNIQUE,
+            category      TEXT,
+            first_seen    TEXT,
+            mention_count INTEGER DEFAULT 1
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_edges_from ON graph_edges(from_type, from_id);
+        CREATE INDEX IF NOT EXISTS idx_edges_to   ON graph_edges(to_type, to_id);
+        CREATE INDEX IF NOT EXISTS idx_edges_type ON graph_edges(edge_type);
+        CREATE INDEX IF NOT EXISTS idx_ai_status  ON action_items(status);
+        CREATE INDEX IF NOT EXISTS idx_ai_owner   ON action_items(owner);
+        CREATE INDEX IF NOT EXISTS idx_ai_meeting ON action_items(meeting_filename);
+        CREATE INDEX IF NOT EXISTS idx_dec_meeting ON decisions(meeting_filename);
+    """)
+
+
+def add_edge(conn, from_type, from_id, edge_type, to_type, to_id, confidence=1.0):
+    conn.execute(
+        """INSERT INTO graph_edges (from_type, from_id, edge_type, to_type, to_id, confidence)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (from_type, from_id, edge_type, to_type, to_id, confidence)
+    )
+
+
+def load_known_people():
+    """Load multi-word people names from contacts.db for transcript scanning."""
+    if not CONTACTS_DB.exists():
+        return []
+    conn = sqlite3.connect(CONTACTS_DB)
+    rows = conn.execute("""
+        SELECT DISTINCT name FROM people
+        WHERE name LIKE '% %'
+          AND name NOT LIKE 'SPEAKER%'
+          AND name NOT LIKE '%@%'
+          AND LENGTH(name) > 5
+    """).fetchall()
+    # Also grab resolved_name where it differs
+    resolved = conn.execute("""
+        SELECT DISTINCT resolved_name FROM people
+        WHERE resolved_name IS NOT NULL
+          AND resolved_name LIKE '% %'
+          AND resolved_name NOT LIKE 'SPEAKER%'
+          AND LENGTH(resolved_name) > 5
+    """).fetchall()
+    conn.close()
+    names = set(r[0] for r in rows) | set(r[0] for r in resolved)
+    # Filter out very short surnames that would cause false positives
+    return sorted(names, key=len, reverse=True)  # longest first to avoid partial matches
+
+
+def scan_transcript_for_names(transcript_body, known_names):
+    """Find known people mentioned in transcript text. Returns set of matched names."""
+    found = set()
+    body_lower = transcript_body.lower()
+    for name in known_names:
+        if name.lower() in body_lower:
+            found.add(name)
+    return found
+
+
+def build_person_resolver():
+    """Build a slug → canonical_slug mapping for entity resolution.
+
+    Sources:
+    1. contacts.db resolved_name (e.g. "Cathal Murphy" → "Cathal Bellew")
+    2. Known WhisperX mishearings (hardcoded)
+    3. Strip question marks, brackets, compound "and" names
+    4. Filter out SPEAKER_XX, unknown, junk entries
+    """
+    resolver = {}
+
+    # --- Hardcoded mishearing fixes ---
+    mishearings = {
+        "pat-nester": "pat-nestor",
+        "pat-nestor": "pat-nestor",  # canonical spelling
+        "owen-lane": "eoin-lane",
+        "owen-lane-(eoin)": "eoin-lane",
+        "owen-lane-(eoin-lane)": "eoin-lane",
+        "owen-(eoin-lane)": "eoin-lane",
+        "eoghan-lane": "eoin-lane",
+        "declan-sheen": "declan-sheehan",
+        "aidan-bly": "aidan-blighe",
+        "david-floods": "david-flood",
+        "david-floyd": "david-flood",
+        "cahal-dri": "cathal-bellew",
+        "ian-o'keefe": "ian-o'keeffe",
+        "philip-lestrange": "philip-l'estrange",
+        "rob-hell": "rob-howell",
+        "hugh-cregan": "hugh-creegan",
+        "kevin-dunn": "kevin-dunne",
+    }
+    resolver.update(mishearings)
+
+    # --- Pull resolved names from contacts.db ---
+    # Always resolve toward the LONGER (fuller) name to avoid collapsing
+    # "Jamie Cudden" → "Jamie". Build both directions then pick the longer target.
+    if CONTACTS_DB.exists():
+        conn = sqlite3.connect(CONTACTS_DB)
+        rows = conn.execute("""
+            SELECT name, resolved_name FROM people
+            WHERE resolved_name IS NOT NULL
+              AND resolved_name != name
+              AND name NOT LIKE 'SPEAKER%'
+        """).fetchall()
+        conn.close()
+        for name, resolved in rows:
+            src_slug = slugify(name)
+            dst_slug = slugify(resolved)
+            if src_slug == dst_slug:
+                continue
+            # Always map the shorter slug to the longer one
+            if len(src_slug) > len(dst_slug):
+                # name is longer — map resolved → name
+                if dst_slug not in mishearings:  # don't override hardcoded fixes
+                    resolver[dst_slug] = src_slug
+            else:
+                # resolved is longer — map name → resolved
+                if src_slug not in mishearings:
+                    resolver[src_slug] = dst_slug
+
+    return resolver
+
+
+def resolve_person_slug(slug, resolver):
+    """Resolve a person slug to its canonical form. Returns None to discard."""
+    # Strip question marks and normalize dots to hyphens
+    slug = slug.rstrip("?")
+    slug = slug.replace(".", "-")
+
+    # Discard junk entries
+    if not slug or len(slug) < 3:
+        return None
+    if slug.startswith("speaker-") or slug == "unknown":
+        return None
+    if slug.startswith("unknown-"):
+        return None
+    # Discard compound names with "and" or comma-separated (e.g. "eoin-lane-and-declan-sheehan")
+    if "-and-" in slug or slug.endswith("-and-team"):
+        return None
+    # Discard comma-separated compound entries (e.g. "eoin-lane,-jamie,-ashish")
+    if ",-" in slug:
+        return None
+    # Discard entries with parenthetical qualifiers (e.g. "eoin-lane-(to-facilitate)")
+    if "-(" in slug:
+        return None
+    # Discard entries with semicolons or "with" compounds
+    if ";" in slug or "-with-" in slug:
+        return None
+    # Discard entries like "eoin-lane-to-ask-..." (action descriptions, not names)
+    if "-to-" in slug and len(slug) > 30:
+        return None
+    # Discard "or" compounds (e.g. "long-thanh-mai-or-mahsa-mahdinejad")
+    if "-or-" in slug:
+        return None
+    # Discard email addresses
+    if "@" in slug:
+        return None
+    # Discard non-person entries
+    non_persons = {"surveillance-authority", "new-ceo", "microsoft-contacts",
+                   "microsoft-representatives", "dr--jamie", "father"}
+    if slug in non_persons:
+        return None
+    # Discard team/role/relationship descriptions
+    junk_patterns = ["team", "officer", "authority", "grandfather", "father",
+                     "vp-of-", "chief-", "participants", "resource-placed",
+                     "'s-"]
+    if any(p in slug for p in junk_patterns):
+        return None
+
+    # Apply resolver
+    if slug in resolver:
+        return resolver[slug]
+
+    return slug
+
+
+def build_graph():
+    rsync_insights()
+
+    # Load known people roster for transcript scanning
+    known_people = load_known_people()
+    print(f"  Loaded {len(known_people)} known people for transcript scanning")
+
+    # Build entity resolver
+    resolver = build_person_resolver()
+    print(f"  Built resolver with {len(resolver)} mappings")
+
+    # Build UUID → insights JSON mapping
+    insights_map = {}
+    for fname in os.listdir(INSIGHTS_DIR):
+        if not fname.endswith(".json"):
+            continue
+        fpath = os.path.join(INSIGHTS_DIR, fname)
+        try:
+            with open(fpath) as f:
+                data = json.load(f)
+            if data.get("skipped"):
+                continue
+            # Key by filename without .json and without .txt
+            key = fname.replace(".json", "").replace(".txt", "")
+            insights_map[key] = data
+        except (json.JSONDecodeError, OSError):
+            continue
+
+    print(f"  Loaded {len(insights_map)} insights files")
+
+    # Scan KB meetings
+    md_files = sorted(KB_DIR.glob("*.md"))
+    print(f"  Found {len(md_files)} meeting files")
+
+    conn = sqlite3.connect(GRAPH_DB)
+    conn.execute("PRAGMA journal_mode=WAL")
+
+    # Drop and recreate for clean rebuild
+    conn.executescript("""
+        DROP TABLE IF EXISTS decisions;
+        DROP TABLE IF EXISTS action_items;
+        DROP TABLE IF EXISTS graph_edges;
+        DROP TABLE IF EXISTS concepts;
+    """)
+    init_db(conn)
+
+    stats = {"meetings": 0, "actions": 0, "decisions": 0, "edges": 0, "matched": 0,
+             "insights_people": 0, "transcript_people": 0}
+
+    for md_path in md_files:
+        fm, body = parse_frontmatter_and_body(md_path)
+        if not fm:
+            continue
+
+        meeting_filename = md_path.name
+        source_file = fm.get("source_file", "")
+        category = fm.get("category", "")
+        date = str(fm.get("date", ""))
+        attendees = parse_people_field(fm.get("attendees", []))
+        mentioned = parse_people_field(fm.get("mentioned", []))
+
+        stats["meetings"] += 1
+
+        # Track all people linked to this meeting (slug → edge_type) to deduplicate
+        seen_people = {}
+
+        # Add SPOKE_IN edges for attendees
+        for person in attendees:
+            slug = resolve_person_slug(slugify(person), resolver)
+            if slug and slug not in seen_people:
+                add_edge(conn, "person", slug, "SPOKE_IN", "meeting", meeting_filename)
+                seen_people[slug] = "SPOKE_IN"
+                stats["edges"] += 1
+
+        # Add MENTIONED_IN edges for mentioned people (from frontmatter)
+        for person in mentioned:
+            slug = resolve_person_slug(slugify(person), resolver)
+            if slug and slug not in seen_people:
+                add_edge(conn, "person", slug, "MENTIONED_IN", "meeting", meeting_filename)
+                seen_people[slug] = "MENTIONED_IN"
+                stats["edges"] += 1
+
+        # Add PART_OF edge for category
+        if category:
+            add_edge(conn, "meeting", meeting_filename, "PART_OF", "category", category)
+            stats["edges"] += 1
+
+        # Find matching insights JSON (source_file may have .txt suffix)
+        lookup_key = source_file.replace(".txt", "")
+        insights = insights_map.get(lookup_key) or insights_map.get(source_file)
+
+        if insights:
+            stats["matched"] += 1
+
+            # --- Enrichment 1: Extract people from insights JSON ---
+            insights_names = set()
+            for ai in insights.get("action_items", []):
+                if isinstance(ai, dict):
+                    owner = ai.get("owner", "")
+                    if owner and " " in owner and not owner.startswith("SPEAKER"):
+                        insights_names.add(owner.strip("[]"))
+            for fu in insights.get("follow_ups", []):
+                if isinstance(fu, dict):
+                    who = fu.get("who") or ""
+                    if who and " " in who and not who.startswith("SPEAKER"):
+                        insights_names.add(who.strip("[]"))
+
+            for name in insights_names:
+                slug = resolve_person_slug(slugify(name), resolver)
+                if slug and slug not in seen_people:
+                    add_edge(conn, "person", slug, "MENTIONED_IN", "meeting", meeting_filename, confidence=0.9)
+                    seen_people[slug] = "MENTIONED_IN"
+                    stats["edges"] += 1
+                    stats["insights_people"] += 1
+
+            # Store action items
+            for ai in insights.get("action_items", []):
+                if isinstance(ai, dict):
+                    text = ai.get("action", "")
+                    owner = ai.get("owner", "").strip("[]")
+                else:
+                    text = str(ai)
+                    owner = ""
+
+                if not text:
+                    continue
+
+                cur = conn.execute(
+                    "INSERT INTO action_items (meeting_filename, text, owner) VALUES (?, ?, ?)",
+                    (meeting_filename, text, owner or None)
+                )
+                ai_id = cur.lastrowid
+                stats["actions"] += 1
+
+                # meeting PRODUCED action_item
+                add_edge(conn, "meeting", meeting_filename, "PRODUCED", "action_item", str(ai_id))
+                stats["edges"] += 1
+
+                # action_item ASSIGNED_TO person
+                if owner:
+                    owner_slug = resolve_person_slug(slugify(owner), resolver)
+                    if owner_slug:
+                        add_edge(conn, "action_item", str(ai_id), "ASSIGNED_TO", "person", owner_slug)
+                        stats["edges"] += 1
+
+            # Store decisions
+            for dec_text in insights.get("decisions", []):
+                if not dec_text:
+                    continue
+                cur = conn.execute(
+                    "INSERT INTO decisions (meeting_filename, text) VALUES (?, ?)",
+                    (meeting_filename, dec_text)
+                )
+                dec_id = cur.lastrowid
+                stats["decisions"] += 1
+
+                add_edge(conn, "meeting", meeting_filename, "PRODUCED", "decision", str(dec_id))
+                stats["edges"] += 1
+
+            # Store follow-ups as edges back to the meeting
+            for fu in insights.get("follow_ups", []):
+                if isinstance(fu, dict):
+                    desc = fu.get("description", "")
+                    who = fu.get("who") or ""
+                else:
+                    desc = str(fu)
+                    who = ""
+                if desc and who:
+                    who_slug = resolve_person_slug(slugify(who), resolver)
+                    if who_slug:
+                        add_edge(conn, "person", who_slug, "FOLLOW_UP", "meeting", meeting_filename, confidence=0.8)
+                        stats["edges"] += 1
+
+        # --- Enrichment 2: Scan transcript body for known people names ---
+        if known_people and body:
+            found_names = scan_transcript_for_names(body, known_people)
+            for name in found_names:
+                slug = resolve_person_slug(slugify(name), resolver)
+                if slug and slug not in seen_people and slug != "eoin-lane":
+                    add_edge(conn, "person", slug, "MENTIONED_IN", "meeting", meeting_filename, confidence=0.8)
+                    seen_people[slug] = "MENTIONED_IN"
+                    stats["edges"] += 1
+                    stats["transcript_people"] += 1
+
+    conn.commit()
+    conn.close()
+
+    print(f"\nDone — {GRAPH_DB}")
+    print(f"  {stats['meetings']} meetings processed")
+    print(f"  {stats['matched']} matched to insights ({stats['meetings'] - stats['matched']} without insights)")
+    print(f"  {stats['actions']} action items")
+    print(f"  {stats['decisions']} decisions")
+    print(f"  {stats['edges']} graph edges")
+    print(f"  People enrichment: {stats['insights_people']} from insights, {stats['transcript_people']} from transcript scan")
+
+
+if __name__ == "__main__":
+    build_graph()

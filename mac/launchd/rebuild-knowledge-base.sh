@@ -32,6 +32,12 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# Step 2b: Build contacts DB + graph
+echo "$(date): Building contacts DB..." >> "$LOG"
+/usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/build_contacts_db.py >> "$LOG" 2>&1
+echo "$(date): Building graph..." >> "$LOG"
+/usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/build_graph.py >> "$LOG" 2>&1
+
 # Step 3: Rsync to Ubuntu
 echo "$(date): Syncing to Ubuntu..." >> "$LOG"
 rsync -az --delete \

@@ -21,6 +21,8 @@ CATEGORY_NAME_EXPANSIONS = {
         "eoin swift": "Eoin Swift",
         "swift": "Eoin Swift",
         "ashish": "Ashish Rajput",
+        "pat": "Pat Nestor",
+        "pat nester": "Pat Nestor",
     },
     "NTA": {
         "cathal": "Cathal Bellew",
@@ -29,6 +31,7 @@ CATEGORY_NAME_EXPANSIONS = {
         "neil": "Neil",
         "mark": "Mark",
         "siobhan": "Siobhan Quinn",
+        "mark": "Mark O'Brien Moody",
     },
     "Diotima": {
         "siobhan": "Siobhan Ryan",

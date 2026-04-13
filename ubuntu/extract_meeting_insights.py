@@ -27,16 +27,16 @@ USE_LITELLM = True  # Use Haiku for extraction, fall back to Ollama if unavailab
 INSIGHTS_DIR = os.path.expanduser("~/audio-inbox/Insights")
 os.makedirs(INSIGHTS_DIR, exist_ok=True)
 
-SYSTEM_PROMPT = """You extract structured insights from meeting transcripts. The transcript has speaker names in square brackets like [Eoin Lane] or [Ray Duffy].
+SYSTEM_PROMPT = """You extract structured insights from meeting transcripts. The transcript has speaker labels in square brackets — either real names like [Eoin Lane] or anonymous labels like [SPEAKER_00].
 
-IMPORTANT: Only use names that actually appear in the transcript inside square brackets (e.g. [Eoin Lane], [Ray Duffy]). NEVER invent names. If you cannot identify who owns an action, use "unknown" as the owner. For introductory meetings, focus on what was learned and what needs to happen next rather than formal action items.
+When the transcript uses SPEAKER_XX labels, use the MEETING PARTICIPANTS list provided to figure out who is who based on context (what they say, their role, what others call them). Assign action items to real participant names, not SPEAKER_XX labels. If you truly cannot determine who a speaker is, use "unknown".
 
 Extract the following. Be specific — include names, dates, and concrete details. If a field has no items, return an empty list.
 
 OUTPUT: Respond with ONLY a JSON object:
 {
   "action_items": [
-    {"owner": "Person Name from transcript", "action": "what they committed to do", "deadline": "by when, or null"}
+    {"owner": "Person Name (real name, not SPEAKER_XX)", "action": "what they committed to do", "deadline": "by when, or null"}
   ],
   "decisions": [
     "Specific decision that was made or agreed"
@@ -53,12 +53,12 @@ OUTPUT: Respond with ONLY a JSON object:
 }
 
 Rules:
-- Action items must have a clear owner (the person who said "I'll..." or was asked to do something)
+- Action items must have a clear owner — use real names from the participants list, not SPEAKER_XX
 - Decisions are things that were agreed or concluded, not just discussed
 - Follow-ups are next steps that weren't assigned to a specific person yet
 - Open questions are things explicitly flagged as needing answers
 - Key topics should be 3-7 specific items, not generic labels
-- Use full names where known from the transcript speaker labels
+- One speaker is always Eoin Lane (the meeting recorder) — usually the one asking questions or facilitating
 - If the transcript is too short or has no substantive content, return empty lists"""
 
 
@@ -110,7 +110,7 @@ def call_llm(messages):
     return call_ollama(messages)
 
 
-def extract_insights(transcript_text):
+def extract_insights(transcript_text, participants=None, category="", topic=""):
     """Send transcript to LLM for insight extraction.
     Haiku (via LiteLLM): sends full transcript (200K context).
     Ollama fallback: caps at 24K chars (32K context limit)."""
@@ -119,9 +119,22 @@ def extract_insights(transcript_text):
     else:
         content = transcript_text[:24000]
 
+    # Build participant context for the LLM
+    context_parts = []
+    if category:
+        context_parts.append(f"Meeting category: {category}")
+    if topic:
+        context_parts.append(f"Meeting topic: {topic}")
+    if participants:
+        context_parts.append(f"Meeting participants: {', '.join(participants)}")
+    else:
+        context_parts.append("Meeting participants: unknown — use transcript context clues to identify speakers")
+
+    context_header = "\n".join(context_parts)
+
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Extract insights from this meeting transcript:\n\n{content}"}
+        {"role": "user", "content": f"{context_header}\n\nExtract insights from this meeting transcript:\n\n{content}"}
     ]
 
     result = call_llm(messages)
@@ -155,7 +168,7 @@ def extract_insights(transcript_text):
     return None
 
 
-def process_transcript(txt_path, csv_path):
+def process_transcript(txt_path, csv_path, force=False):
     """Extract insights for a single transcript."""
     with open(txt_path) as f:
         content = f.read()
@@ -173,21 +186,28 @@ def process_transcript(txt_path, csv_path):
 
     insights_file = os.path.join(INSIGHTS_DIR, uuid + ".json")
 
-    # Skip if already extracted
-    if os.path.exists(insights_file):
+    # Skip if already extracted (unless force)
+    if os.path.exists(insights_file) and not force:
         print(f"  Already extracted: {uuid}")
         return True
 
-    # Get category from CSV for context
+    # Get category, topic, and key_people from CSV
     category = ""
     topic = ""
+    key_people = []
     if csv_path and os.path.exists(csv_path):
         with open(csv_path) as f:
             for row in csv.reader(f):
                 if len(row) >= 6 and uuid in row[0]:
                     category = row[2]
                     topic = row[5]
+                    # key_people is column 4 (semicolon or comma separated)
+                    if row[4].strip():
+                        key_people = [p.strip() for p in re.split(r"[;,]", row[4]) if p.strip()]
                     break
+    # Always include Eoin Lane as a participant
+    if "Eoin Lane" not in key_people and "Eoin" not in key_people:
+        key_people.insert(0, "Eoin Lane")
 
     # Skip blank/minimal recordings
     lines = [l for l in content.splitlines() if l.strip() and not l.startswith(("File:", "Recorded:", "---"))]
@@ -202,7 +222,7 @@ def process_transcript(txt_path, csv_path):
     t0 = time.time()
 
     try:
-        insights = extract_insights(content)
+        insights = extract_insights(content, participants=key_people, category=category, topic=topic)
     except Exception as e:
         print(f"  FAILED: {e}", file=sys.stderr)
         return False
@@ -216,7 +236,7 @@ def process_transcript(txt_path, csv_path):
     insights["category"] = category
     insights["topic"] = topic
     insights["extracted_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    insights["model"] = MODEL
+    insights["model"] = LITELLM_MODEL if USE_LITELLM else MODEL
 
     # Count items
     n_actions = len(insights.get("action_items", []))
@@ -266,7 +286,7 @@ def batch_process(csv_path, limit=None, force=False):
     ok, failed = 0, 0
     for i, path in enumerate(to_process, 1):
         print(f"[{i}/{len(to_process)}]", end="")
-        if process_transcript(path, csv_path):
+        if process_transcript(path, csv_path, force=force):
             ok += 1
         else:
             failed += 1

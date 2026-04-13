@@ -23,9 +23,19 @@ Tests run against **live data** (real CSV, real KB files). They are not isolated
 **Full rebuild (Mac):**
 ```bash
 bash ~/.local/bin/rebuild-knowledge-base.sh
-# Or just the KB + contacts:
+# Or just the KB + contacts + graph:
 python3 ~/build_knowledge_base.py
-python3 ~/knowledgebase-pipeline/build_contacts_db.py
+python3 ~/knowledgebase-pipeline/mac/build_contacts_db.py
+python3 ~/knowledgebase-pipeline/mac/build_graph.py
+```
+
+**Query the knowledge graph:**
+```bash
+python3 ~/query_graph.py stats                          # overview
+python3 ~/query_graph.py open --project DCC             # open action items
+python3 ~/query_graph.py open --person "Pat Nestor"     # items for a person
+python3 ~/query_graph.py decisions --project NTA        # decisions by project
+python3 ~/query_graph.py history "Jamie Cudden"         # meeting history
 ```
 
 **Contacts web UI:**
@@ -82,7 +92,7 @@ Makefile         — deploy-ubuntu, deploy-mac, test, clean-ubuntu
 
 Scripts in **`ubuntu/`** (GPU required): `transcribe_single.py`, `classify_transcript.py`, `identify_speakers.py`, `reclassify_by_speaker.py`, `extract_meeting_insights.py`, `batch_identify_speakers.py`, `review_speakers.py`, `watch-and-transcribe.sh`, `watchdog-transcribe.sh`.
 
-Scripts in **`mac/`**: `build_knowledge_base.py`, `build_contacts_db.py`, `contacts_viewer.py`, `apply_kb_corrections.py`, `process_inbox.py`, `upload_knowledge_base_incremental.py`.
+Scripts in **`mac/`**: `build_knowledge_base.py`, `build_contacts_db.py`, `build_graph.py`, `query_graph.py`, `contacts_viewer.py`, `apply_kb_corrections.py`, `process_inbox.py`, `upload_knowledge_base_incremental.py`.
 
 **`shared/config.py`** has OLLAMA_URL, MODEL, PERSON_CATEGORY (person→category mapping), KEEP_CATEGORIES. **`shared/name_expansions.py`** has WhisperX mishearing→full name tables per category. Both imported by Ubuntu and Mac scripts with fallback to hardcoded values.
 
@@ -99,6 +109,9 @@ apply_kb_corrections.py  ←  ~/kb_corrections.json (manual overrides)
     ↓
 build_contacts_db.py  →  ~/contacts.db  (meetings, people, attendees tables)
                            entity_resolution.py  →  merge_suggestions table
+    ↓
+build_graph.py  →  ~/graph.db  (action_items, decisions, graph_edges)
+                      query_graph.py  →  CLI for pre-meeting briefings, open items
     ↓
 upload_knowledge_base_incremental.py  →  Open WebUI
 ```
@@ -142,6 +155,20 @@ dismissed_pairs (name1, name2)
 ### Inbox Processing
 
 `process_inbox.py` watches `~/inbox/` (via launchd WatchPaths). Supported: `.pdf`, `.docx`, `.pptx`, `.eml`, `.txt`, `.md`, images. Classification via LiteLLM proxy at `http://100.121.184.27:4000` using `claude-haiku-4-5`. Outputs to `~/knowledge_base/documents/`. Emails (`.eml`) extract body + embedded attachments into a single KB doc with `type: email` frontmatter.
+
+### Knowledge Graph (graph.db)
+
+`build_graph.py` runs after `build_contacts_db.py`. Reads KB frontmatter + insights JSONs (`/tmp/kb_insights/`), outputs `~/graph.db` (SQLite). `query_graph.py` is the CLI query tool.
+
+**Schema:** `action_items` (text, owner, status), `decisions` (text, status), `graph_edges` (from/to type+id, edge_type, confidence), `concepts` (empty — Phase 4).
+
+**Edge types:** `SPOKE_IN` (calendar attendee → meeting), `MENTIONED_IN` (person → meeting), `PRODUCED` (meeting → action_item/decision), `ASSIGNED_TO` (action_item → person), `FOLLOW_UP` (person → meeting), `PART_OF` (meeting → category).
+
+**People enrichment:** Two sources beyond frontmatter: (1) action item owners + follow-up assignees from insights JSON (confidence 0.9), (2) known-name scanning of transcript body against contacts.db roster (confidence 0.8).
+
+**Entity resolution in graph:** Merges WhisperX mishearings (e.g. `pat-nester` → `pat-nestor`), first-name-only → full names via contacts.db resolved_name (preferring longer name), strips SPEAKER_XX/unknown/compound/junk entries. Resolver built from hardcoded mishearings + contacts.db mappings.
+
+**Insights extraction** (`extract_meeting_insights.py`) now passes CSV `key_people` + category + topic to the LLM as participant context, so action items get real owner names even when transcript has SPEAKER_XX labels.
 
 ### Upload Design
 
