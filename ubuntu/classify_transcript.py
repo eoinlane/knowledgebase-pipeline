@@ -1,5 +1,5 @@
 """
-Classifies a transcript using qwen2.5:14b via ollama-box and updates the CSV.
+Classifies a transcript using qwen2.5:14b via ollama-box, with LiteLLM/Haiku fallback.
 Usage: python3 classify_transcript.py <transcript_txt> <csv_path>
 """
 import sys, os, json, csv, re
@@ -14,6 +14,10 @@ try:
 except ImportError:
     OLLAMA_URL = "http://192.168.0.70:11434/api/chat"
     MODEL = "qwen2.5:14b"
+
+LITELLM_URL = "http://localhost:4000/v1/chat/completions"
+LITELLM_MODEL = "claude-haiku-4-5"
+
 CSV_PATH = sys.argv[2]
 transcript_path = sys.argv[1]
 
@@ -65,30 +69,56 @@ OUTPUT: Respond with ONLY a JSON object, no explanation, no markdown, no <think>
 
 USER_PROMPT = f"Classify this transcript:\n\n{content[:6000]}"
 
-payload = {
-    "model": MODEL,
-    "messages": [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": USER_PROMPT}
-    ],
-    "stream": False,
-    "keep_alive": -1,
-    "options": {"temperature": 0}
-}
+messages = [
+    {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "user", "content": USER_PROMPT}
+]
 
-req = urllib.request.Request(
-    OLLAMA_URL,
-    data=json.dumps(payload).encode(),
-    headers={"Content-Type": "application/json"}
-)
 
-try:
+def call_ollama(messages):
+    payload = json.dumps({
+        "model": MODEL,
+        "messages": messages,
+        "stream": False,
+        "keep_alive": -1,
+        "options": {"temperature": 0}
+    }).encode()
+    req = urllib.request.Request(
+        OLLAMA_URL, data=payload,
+        headers={"Content-Type": "application/json"}
+    )
     with urllib.request.urlopen(req, timeout=300) as resp:
         result = json.loads(resp.read())
-    raw = result["message"]["content"].strip()
+    return result["message"]["content"].strip()
+
+
+def call_litellm(messages):
+    payload = json.dumps({
+        "model": LITELLM_MODEL,
+        "messages": messages,
+        "temperature": 0,
+    }).encode()
+    req = urllib.request.Request(
+        LITELLM_URL, data=payload,
+        headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        result = json.loads(resp.read())
+    return result["choices"][0]["message"]["content"].strip()
+
+
+# Try ollama first, fall back to Haiku
+try:
+    raw = call_ollama(messages)
+    model_used = MODEL
 except Exception as e:
-    print(f"Ollama error: {e}", file=sys.stderr)
-    sys.exit(1)
+    print(f"  Ollama unavailable ({e}), falling back to Haiku")
+    try:
+        raw = call_litellm(messages)
+        model_used = LITELLM_MODEL
+    except Exception as e2:
+        print(f"  LiteLLM also failed: {e2}", file=sys.stderr)
+        sys.exit(1)
 
 # Strip <think>...</think> blocks that deepseek-r1 emits
 raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()

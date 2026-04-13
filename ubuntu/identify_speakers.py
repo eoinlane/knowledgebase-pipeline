@@ -386,19 +386,39 @@ Transcript:
                 "options": {"temperature": 0}
             }
 
-            req = urllib.request.Request(
-                OLLAMA_URL,
-                data=json.dumps(payload).encode(),
-                headers={"Content-Type": "application/json"}
-            )
-
+            # Try ollama first, fall back to Haiku via LiteLLM
+            raw = None
             try:
+                req = urllib.request.Request(
+                    OLLAMA_URL,
+                    data=json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json"}
+                )
                 with urllib.request.urlopen(req, timeout=300) as resp:
                     result = json.loads(resp.read())
                 raw = result["message"]["content"].strip()
             except Exception as e:
-                print(f"  Ollama error: {e}", file=sys.stderr)
-                sys.exit(1)
+                print(f"  Ollama unavailable ({e}), trying Haiku fallback")
+                try:
+                    litellm_payload = json.dumps({
+                        "model": "claude-haiku-4-5",
+                        "messages": [
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": USER_PROMPT}
+                        ],
+                        "temperature": 0,
+                    }).encode()
+                    req = urllib.request.Request(
+                        "http://localhost:4000/v1/chat/completions",
+                        data=litellm_payload,
+                        headers={"Content-Type": "application/json"}
+                    )
+                    with urllib.request.urlopen(req, timeout=300) as resp:
+                        result = json.loads(resp.read())
+                    raw = result["choices"][0]["message"]["content"].strip()
+                except Exception as e2:
+                    print(f"  LiteLLM also failed: {e2}", file=sys.stderr)
+                    sys.exit(1)
 
             raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
             json_match = re.search(r"\{.*\}", raw, re.DOTALL)
