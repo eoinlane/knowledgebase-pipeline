@@ -3,11 +3,20 @@ Build a markdown knowledge base from meeting notes, transcripts, and calendar da
 Output: ~/knowledge_base/ — one .md file per note, plus index files.
 """
 
-import csv, io, json, re, os, subprocess, time
+import csv, io, json, re, os, subprocess, sys, time
 from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
 from zoneinfo import ZoneInfo
+
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", os.path.expanduser("~/knowledgebase-pipeline"))
+if os.path.isdir(PIPELINE_DIR) and PIPELINE_DIR not in sys.path:
+    sys.path.insert(0, PIPELINE_DIR)
+try:
+    from shared.config import PERSON_CATEGORY, KEEP_CATEGORIES
+except ImportError:
+    PERSON_CATEGORY = {}
+    KEEP_CATEGORIES = set()
 
 
 NOTES_DIR = os.path.expanduser(
@@ -494,6 +503,19 @@ for note in notes:
                 break
         if not already_attendee and p_lower not in attendee_names_lower:
             mentioned_names.append(p)
+
+    # Calendar-based category override: if all known attendees map to one category,
+    # override the LLM classification (unless it's a kept category like other:personal)
+    if attendee_names and note["category"] not in KEEP_CATEGORIES:
+        attendee_categories = set()
+        for name in attendee_names:
+            cat = PERSON_CATEGORY.get(name)
+            if cat:
+                attendee_categories.add(cat)
+        if len(attendee_categories) == 1:
+            inferred = attendee_categories.pop()
+            if inferred != note["category"]:
+                note["category"] = inferred
 
     # Build output filename: date_category_slug.md
     date_str = note["_date"].strftime("%Y-%m-%d")
