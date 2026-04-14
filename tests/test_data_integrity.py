@@ -58,14 +58,15 @@ class TestCSV:
         assert dupes == [], f"Duplicate filenames in CSV: {dupes[:5]}"
 
     def test_csv_filenames_have_valid_format(self, csv_rows):
-        """Filenames should be UUID or Plaud timestamp format, optionally with .txt."""
+        """Filenames should be UUID, Plaud timestamp, or descriptive slug format."""
         # UUID: A1B2C3D4-E5F6-...
         # Plaud: 2026-04-02_20_45_22
-        valid_pattern = r"^([A-F0-9\-]{8,}|(\d{4}-\d{2}-\d{2}_\d{2}_\d{2}_\d{2}))(\.txt)?$"
+        # Descriptive: 04-10_Scoping_a_Sovereign_Digital_Twin (manual uploads, Plaud named)
+        valid_pattern = r"^([A-F0-9\-]{8,}|(\d{4}-\d{2}-\d{2}_\d{2}_\d{2}_\d{2})|(\d{2}-\d{2}_[\w\-]+))(\.txt)?$"
         bad = [
             r["filename"]
             for r in csv_rows
-            if not re.match(valid_pattern, r["filename"], re.IGNORECASE)
+            if r["filename"].strip() and not re.match(valid_pattern, r["filename"], re.IGNORECASE)
         ]
         assert bad == [], f"Unexpected filename format: {bad[:5]}"
 
