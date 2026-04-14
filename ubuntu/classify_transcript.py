@@ -48,6 +48,7 @@ CATEGORIES (pick exactly one):
 - other:lgma — LGMA (Local Government Management Agency) recordings.
 
 DISAMBIGUATION RULES:
+- "Cathal" or "Cathal Bellew" alone (no DCC-specific people present) → NTA. Cathal Bellew is an Org Group advisor to NTA. Meetings with him about brown bags, governance, planning, project updates = NTA even if DCC topics are discussed.
 - "Siobhan" alone: if context is EdTech/ethics/Diotima platform → Diotima. If context is NTA/transport/governance → NTA.
 - "Jonathan" or "Masa"/"Mahsa" mentioned → Diotima.
 - CAD drawings / Part M / Building Control / Disability Access Certificate (DAC) → DCC.
