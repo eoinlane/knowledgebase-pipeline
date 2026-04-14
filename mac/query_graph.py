@@ -11,6 +11,9 @@ Usage:
   python3 ~/query_graph.py done 42                       # mark action item #42 as done
   python3 ~/query_graph.py done "send Pat the spec"      # mark by text match
   python3 ~/query_graph.py done --stale 6                # close items older than 6 weeks
+  python3 ~/query_graph.py tags                          # top tags across all projects
+  python3 ~/query_graph.py tags --project NTA             # top NTA tags
+  python3 ~/query_graph.py tags "digital twin"            # find meetings about digital twins
   python3 ~/query_graph.py synthesise "Pat Nestor"        # progressive summary for a person
   python3 ~/query_graph.py synthesise --project DCC      # progressive summary for a project
   python3 ~/query_graph.py review                        # this week's digest
@@ -697,6 +700,60 @@ Be specific with names, dates, and concrete details. No filler. This is a workin
     conn.close()
 
 
+def cmd_tags(args):
+    conn = get_conn(GRAPH_DB)
+
+    if args.search:
+        # Search for meetings by tag
+        search = args.search.lower()
+        concepts = conn.execute(
+            "SELECT id, label, mention_count, category FROM concepts WHERE LOWER(label) LIKE ? ORDER BY mention_count DESC",
+            (f"%{search}%",)
+        ).fetchall()
+
+        if not concepts:
+            print(f"No tags matching \"{args.search}\"")
+            conn.close()
+            return
+
+        for c in concepts[:10]:
+            print(f"## {c['label']} ({c['mention_count']} mentions, {c['category']})\n")
+            # Find meetings that discussed this concept
+            meetings = conn.execute("""
+                SELECT from_id FROM graph_edges
+                WHERE edge_type = 'DISCUSSED' AND to_type = 'concept' AND to_id = ?
+                ORDER BY from_id DESC
+            """, (str(c["id"]),)).fetchall()
+            for m in meetings[:10]:
+                fn = m["from_id"]
+                date = meeting_date(fn)
+                cat = meeting_category(fn)
+                title = meeting_title(fn)
+                print(f"  {date} | {cat} | {title}")
+            if len(meetings) > 10:
+                print(f"  ... and {len(meetings) - 10} more")
+            print()
+    else:
+        # Show top tags
+        project = args.project
+        if project:
+            concepts = conn.execute(
+                "SELECT label, mention_count, category FROM concepts WHERE UPPER(category) = ? ORDER BY mention_count DESC LIMIT 30",
+                (project.upper(),)
+            ).fetchall()
+        else:
+            concepts = conn.execute(
+                "SELECT label, mention_count, category FROM concepts ORDER BY mention_count DESC LIMIT 30"
+            ).fetchall()
+
+        proj_label = f" [{project.upper()}]" if project else ""
+        print(f"## Top Tags{proj_label}\n")
+        for c in concepts:
+            print(f"  {c['mention_count']:>3}x  {c['label']} ({c['category']})")
+
+    conn.close()
+
+
 def cmd_review(args):
     conn = get_conn(GRAPH_DB)
     today = _dt.date.today()
@@ -877,6 +934,10 @@ def main():
     p_hist.add_argument("name", nargs="?", help="Person name")
     p_hist.add_argument("--limit", "-n", type=int, default=10)
 
+    p_tags = sub.add_parser("tags", help="Browse and search tags/concepts")
+    p_tags.add_argument("search", nargs="?", help="Search for a tag")
+    p_tags.add_argument("--project", "-p", help="Filter by project/category")
+
     p_synth = sub.add_parser("synthesise", help="Progressive summarisation for a person or project")
     p_synth.add_argument("name", nargs="?", help="Person name")
     p_synth.add_argument("--project", "-p", help="Synthesise a project instead of a person")
@@ -898,6 +959,8 @@ def main():
         cmd_decisions(args)
     elif args.command == "history":
         cmd_history(args)
+    elif args.command == "tags":
+        cmd_tags(args)
     elif args.command == "synthesise":
         cmd_synthesise(args)
     elif args.command == "review":

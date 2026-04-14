@@ -499,6 +499,34 @@ def build_graph():
                     stats["edges"] += 1
                     stats["transcript_people"] += 1
 
+        # --- Enrichment 3: Extract tags from key_topics ---
+        if insights:
+            for topic_text in insights.get("key_topics", []):
+                # Normalise: take first phrase (before — or :), lowercase
+                # Use only em-dash and colon as separators (not hyphens)
+                label = re.split(r"\s*[—:–]\s*", topic_text)[0].strip()
+                if len(label) < 10 or len(label) > 80:
+                    continue
+                label = label.lower()
+                # Upsert into concepts table
+                existing = conn.execute(
+                    "SELECT id, mention_count FROM concepts WHERE label = ?", (label,)
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE concepts SET mention_count = mention_count + 1 WHERE id = ?",
+                        (existing[0],)
+                    )
+                    concept_id = existing[0]
+                else:
+                    cur = conn.execute(
+                        "INSERT INTO concepts (label, category, first_seen) VALUES (?, ?, ?)",
+                        (label, category, meeting_filename)
+                    )
+                    concept_id = cur.lastrowid
+                add_edge(conn, "meeting", meeting_filename, "DISCUSSED", "concept", str(concept_id))
+                stats["edges"] += 1
+
     # --- Index documents/ into the graph ---
     docs_count = 0
     if DOCS_DIR.exists():
