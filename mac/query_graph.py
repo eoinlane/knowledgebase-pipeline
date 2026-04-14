@@ -11,6 +11,8 @@ Usage:
   python3 ~/query_graph.py done 42                       # mark action item #42 as done
   python3 ~/query_graph.py done "send Pat the spec"      # mark by text match
   python3 ~/query_graph.py done --stale 6                # close items older than 6 weeks
+  python3 ~/query_graph.py review                        # this week's digest
+  python3 ~/query_graph.py review --weeks 2              # last 2 weeks
   python3 ~/query_graph.py decisions --project DCC       # decisions for DCC
   python3 ~/query_graph.py history "Brendan Ryan"        # meeting history with a person
   python3 ~/query_graph.py stats                         # graph stats overview
@@ -241,6 +243,9 @@ def save_closure(meeting_filename, text, status="closed"):
     closures[key] = status
     with open(CLOSURES_FILE, "w") as f:
         json.dump(closures, f, indent=2)
+
+
+import datetime as _dt
 
 
 def meeting_date(filename):
@@ -488,6 +493,163 @@ def cmd_done(args):
     conn.close()
 
 
+def cmd_review(args):
+    conn = get_conn(GRAPH_DB)
+    today = _dt.date.today()
+    # Default to current week (Mon-Sun), or use --weeks to look back further
+    weeks_back = args.weeks or 1
+    week_start = today - _dt.timedelta(days=today.weekday(), weeks=weeks_back - 1)
+    week_end = today + _dt.timedelta(days=1)
+    start_str = week_start.isoformat()
+    end_str = week_end.isoformat()
+    prev_start = (week_start - _dt.timedelta(weeks=4)).isoformat()
+
+    print(f"# Weekly Review: {week_start.strftime('%d %b')} — {today.strftime('%d %b %Y')}")
+    print()
+
+    # --- 1. Meetings this period, by project ---
+    all_meetings = conn.execute("""
+        SELECT DISTINCT to_id FROM graph_edges
+        WHERE to_type = 'meeting' AND edge_type = 'PART_OF'
+          AND to_id >= ? AND to_id < ?
+    """, (start_str, end_str)).fetchall()
+
+    # Actually simpler: use meeting filenames from action_items + decisions
+    meeting_fns = set()
+    for row in conn.execute("SELECT DISTINCT meeting_filename FROM action_items WHERE meeting_filename >= ? AND meeting_filename < ?", (start_str, end_str)):
+        meeting_fns.add(row[0])
+    for row in conn.execute("SELECT DISTINCT meeting_filename FROM decisions WHERE meeting_filename >= ? AND meeting_filename < ?", (start_str, end_str)):
+        meeting_fns.add(row[0])
+
+    # Also get meetings from edges
+    for row in conn.execute("SELECT DISTINCT to_id FROM graph_edges WHERE edge_type='PART_OF' AND to_id >= ? AND to_id < ?", (start_str, end_str)):
+        meeting_fns.add(row[0])
+
+    by_proj = {}
+    for fn in meeting_fns:
+        cat = meeting_category(fn)
+        by_proj.setdefault(cat, []).append(fn)
+
+    print(f"## Meetings ({len(meeting_fns)})")
+    print()
+    for proj in sorted(by_proj, key=lambda p: -len(by_proj[p])):
+        meetings = sorted(by_proj[proj])
+        print(f"  **{proj}** ({len(meetings)})")
+        for fn in meetings:
+            date = meeting_date(fn)
+            title = meeting_title(fn)
+            print(f"    {date} — {title}")
+    print()
+
+    # --- 2. Your new action items this period ---
+    your_items = conn.execute("""
+        SELECT meeting_filename, text FROM action_items
+        WHERE status = 'open' AND LOWER(owner) LIKE '%eoin%'
+          AND meeting_filename >= ? AND meeting_filename < ?
+        ORDER BY meeting_filename DESC
+    """, (start_str, end_str)).fetchall()
+
+    if your_items:
+        print(f"## You Committed To ({len(your_items)})")
+        print()
+        for r in your_items:
+            date = meeting_date(r["meeting_filename"])
+            cat = meeting_category(r["meeting_filename"])
+            print(f"  - [ ] {r['text'][:90]} ({date}, {cat})")
+        print()
+
+    # --- 3. Others' new action items this period ---
+    others_items = conn.execute("""
+        SELECT owner, meeting_filename, text FROM action_items
+        WHERE status = 'open'
+          AND LOWER(owner) NOT LIKE '%eoin%'
+          AND owner NOT LIKE 'SPEAKER%' AND owner != 'unknown'
+          AND owner IS NOT NULL AND owner != ''
+          AND meeting_filename >= ? AND meeting_filename < ?
+        ORDER BY owner, meeting_filename DESC
+    """, (start_str, end_str)).fetchall()
+
+    if others_items:
+        by_owner = {}
+        for r in others_items:
+            by_owner.setdefault(r["owner"], []).append(r)
+        print(f"## Others Committed To ({len(others_items)})")
+        print()
+        for owner in sorted(by_owner):
+            items = by_owner[owner]
+            print(f"  **{owner}** ({len(items)})")
+            for r in items:
+                date = meeting_date(r["meeting_filename"])
+                print(f"    - [ ] {r['text'][:90]} ({date})")
+        print()
+
+    # --- 4. Decisions made this period ---
+    decisions = conn.execute("""
+        SELECT meeting_filename, text FROM decisions
+        WHERE meeting_filename >= ? AND meeting_filename < ?
+        ORDER BY meeting_filename DESC
+    """, (start_str, end_str)).fetchall()
+
+    if decisions:
+        print(f"## Decisions Made ({len(decisions)})")
+        print()
+        for d in decisions[:20]:
+            date = meeting_date(d["meeting_filename"])
+            cat = meeting_category(d["meeting_filename"])
+            print(f"  - {d['text'][:100]} ({date}, {cat})")
+        if len(decisions) > 20:
+            print(f"  ... and {len(decisions) - 20} more")
+        print()
+
+    # --- 5. Overdue items (open, from 2-8 weeks ago) ---
+    overdue_start = (today - _dt.timedelta(weeks=8)).isoformat()
+    overdue_end = (today - _dt.timedelta(weeks=2)).isoformat()
+    overdue = conn.execute("""
+        SELECT id, meeting_filename, text, owner FROM action_items
+        WHERE status = 'open' AND LOWER(owner) LIKE '%eoin%'
+          AND meeting_filename >= ? AND meeting_filename < ?
+        ORDER BY meeting_filename
+    """, (overdue_start, overdue_end)).fetchall()
+
+    if overdue:
+        print(f"## Overdue (2-8 weeks old, {len(overdue)} items)")
+        print()
+        for r in overdue[:15]:
+            date = meeting_date(r["meeting_filename"])
+            cat = meeting_category(r["meeting_filename"])
+            age_days = (today - _dt.date.fromisoformat(date)).days
+            print(f"  - [ ] {r['text'][:80]} ({date}, {cat}, {age_days}d ago, #{r['id']})")
+        if len(overdue) > 15:
+            print(f"  ... and {len(overdue) - 15} more")
+        print()
+
+    # --- 6. People gone quiet ---
+    # Find people with >5 meeting edges whose most recent meeting is >3 weeks old
+    quiet_cutoff = (today - _dt.timedelta(weeks=3)).isoformat()
+    quiet = conn.execute("""
+        SELECT from_id, COUNT(*) as edges, MAX(to_id) as last_meeting
+        FROM graph_edges
+        WHERE from_type = 'person'
+          AND edge_type IN ('SPOKE_IN', 'MENTIONED_IN')
+          AND from_id != 'eoin-lane'
+        GROUP BY from_id
+        HAVING edges > 8 AND last_meeting < ?
+        ORDER BY edges DESC
+    """, (quiet_cutoff,)).fetchall()
+
+    if quiet:
+        print(f"## Gone Quiet (not seen in 3+ weeks)")
+        print()
+        for r in quiet[:10]:
+            last_date = meeting_date(r["last_meeting"])
+            name = r["from_id"].replace("-", " ").title()
+            days_ago = (today - _dt.date.fromisoformat(last_date)).days
+            print(f"  - {name} — last seen {last_date} ({days_ago}d ago, {r['edges']} meetings total)")
+        print()
+
+    conn.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Query the knowledge graph")
     sub = parser.add_subparsers(dest="command")
@@ -511,6 +673,9 @@ def main():
     p_hist.add_argument("name", nargs="?", help="Person name")
     p_hist.add_argument("--limit", "-n", type=int, default=10)
 
+    p_review = sub.add_parser("review", help="Weekly review digest")
+    p_review.add_argument("--weeks", "-w", type=int, default=1, help="How many weeks back (default: current week)")
+
     p_stats = sub.add_parser("stats", help="Graph stats overview")
 
     args = parser.parse_args()
@@ -525,6 +690,8 @@ def main():
         cmd_decisions(args)
     elif args.command == "history":
         cmd_history(args)
+    elif args.command == "review":
+        cmd_review(args)
     elif args.command == "stats":
         cmd_stats(args)
     else:
