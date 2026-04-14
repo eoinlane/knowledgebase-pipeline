@@ -28,9 +28,9 @@ import time
 import requests
 from pathlib import Path
 
-BASE_URL = "http://100.121.184.27:8080"
-EMAIL = "eoinlane@gmail.com"
-PASSWORD = "el"
+BASE_URL = os.environ.get("OPEN_WEBUI_URL", "http://100.121.184.27:8080")
+EMAIL = os.environ.get("OPEN_WEBUI_EMAIL", "eoinlane@gmail.com")
+PASSWORD = os.environ.get("OPEN_WEBUI_PASSWORD", "el")
 KB_DIR = Path.home() / "knowledge_base"
 STATE_FILE = Path.home() / ".local/bin/kb-upload-state.json"
 TIMEOUT = 30

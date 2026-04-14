@@ -29,9 +29,8 @@ CATEGORY_NAME_EXPANSIONS = {
         "cahal": "Cathal Bellew",
         "declan": "Declan Sheehan",
         "neil": "Neil",
-        "mark": "Mark",
-        "siobhan": "Siobhan Quinn",
         "mark": "Mark O'Brien Moody",
+        "siobhan": "Siobhan Quinn",
     },
     "Diotima": {
         "siobhan": "Siobhan Ryan",

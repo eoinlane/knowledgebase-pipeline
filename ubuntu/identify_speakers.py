@@ -482,8 +482,15 @@ Transcript:
         display = name if confidence == "high" else f"{name}?"
         new_content = new_content.replace(f"[{label}]", f"[{display}]")
 
-    with open(transcript_path, "w") as f:
-        f.write(new_content)
+    import tempfile
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(transcript_path), suffix=".txt")
+    try:
+        with os.fdopen(tmp_fd, "w") as f:
+            f.write(new_content)
+        os.replace(tmp_path, transcript_path)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
 
     print(f"  Speaker identification complete for {uuid}")
     for label, info in speaker_map.items():

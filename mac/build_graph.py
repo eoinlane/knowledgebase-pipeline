@@ -38,13 +38,22 @@ def rsync_insights():
     """Pull insights JSONs from Ubuntu to /tmp/kb_insights/."""
     os.makedirs(INSIGHTS_DIR, exist_ok=True)
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["rsync", "-az", "--timeout=10",
              "eoin@nvidiaubuntubox:~/audio-inbox/Insights/", INSIGHTS_DIR + "/"],
             timeout=30, capture_output=True
         )
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass  # Use whatever was already synced
+        if result.returncode != 0:
+            print(f"  WARNING: rsync failed (exit {result.returncode}) — using cached insights")
+    except subprocess.TimeoutExpired:
+        print("  WARNING: rsync timed out — Ubuntu unreachable, using cached insights")
+    except FileNotFoundError:
+        print("  WARNING: rsync not found — using cached insights")
+
+    # Check we have something to work with
+    existing = [f for f in os.listdir(INSIGHTS_DIR) if f.endswith(".json")] if os.path.isdir(INSIGHTS_DIR) else []
+    if not existing:
+        print("  ERROR: No insights files available — graph will have no action items or decisions")
 
 
 def parse_frontmatter_and_body(filepath):
@@ -331,17 +340,26 @@ def build_graph():
     md_files = sorted(KB_DIR.glob("*.md"))
     print(f"  Found {len(md_files)} meeting files")
 
-    conn = sqlite3.connect(GRAPH_DB)
-    conn.execute("PRAGMA journal_mode=WAL")
+    # Build into temp DB, then atomic swap (so queries never see empty tables)
+    tmp_db = Path(str(GRAPH_DB) + ".tmp")
+    if tmp_db.exists():
+        tmp_db.unlink()
 
-    # Drop and recreate for clean rebuild
-    conn.executescript("""
-        DROP TABLE IF EXISTS decisions;
-        DROP TABLE IF EXISTS action_items;
-        DROP TABLE IF EXISTS graph_edges;
-        DROP TABLE IF EXISTS concepts;
-    """)
+    conn = sqlite3.connect(tmp_db)
+    conn.execute("PRAGMA journal_mode=WAL")
     init_db(conn)
+
+    # Carry forward syntheses from existing DB (expensive to regenerate)
+    if GRAPH_DB.exists():
+        try:
+            old_conn = sqlite3.connect(GRAPH_DB)
+            old_conn.row_factory = sqlite3.Row
+            for row in old_conn.execute("SELECT entity_type, entity_id, text, model, created_at FROM syntheses"):
+                conn.execute("INSERT INTO syntheses (entity_type, entity_id, text, model, created_at) VALUES (?, ?, ?, ?, ?)",
+                             (row["entity_type"], row["entity_id"], row["text"], row["model"], row["created_at"]))
+            old_conn.close()
+        except Exception:
+            pass  # No syntheses to carry forward
 
     stats = {"meetings": 0, "actions": 0, "decisions": 0, "edges": 0, "matched": 0,
              "insights_people": 0, "transcript_people": 0}
@@ -548,6 +566,9 @@ def build_graph():
 
     conn.commit()
     conn.close()
+
+    # Atomic swap: replace old DB with new one
+    os.replace(tmp_db, GRAPH_DB)
 
     open_count = sqlite3.connect(GRAPH_DB).execute(
         "SELECT COUNT(*) FROM action_items WHERE status = 'open'"

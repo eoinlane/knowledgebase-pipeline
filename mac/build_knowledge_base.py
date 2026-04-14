@@ -4,6 +4,7 @@ Output: ~/knowledge_base/ — one .md file per note, plus index files.
 """
 
 import csv, io, json, re, os, subprocess, time
+from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
 from zoneinfo import ZoneInfo
@@ -641,7 +642,7 @@ for note in notes:
     lines.append("")
 
     content = "\n".join(lines)
-    if not os.path.exists(out_path) or open(out_path).read() != content:
+    if not os.path.exists(out_path) or Path(out_path).read_text() != content:
         with open(out_path, "w") as f:
             f.write(content)
 
@@ -707,7 +708,7 @@ for person_name, note_files in sorted(people_index.items()):
     lines.append("")
 
     content = "\n".join(lines)
-    if not os.path.exists(out_path) or open(out_path).read() != content:
+    if not os.path.exists(out_path) or Path(out_path).read_text() != content:
         with open(out_path, "w") as f:
             f.write(content)
 
@@ -746,7 +747,7 @@ for category, items in sorted(by_category.items()):
         lines.append(f"| {item['date']} | [[meetings/{item['file']}\\|{topic}]] | {ppl} | {has_cal} |")
     lines.append("")
     content = "\n".join(lines)
-    if not os.path.exists(out_path) or open(out_path).read() != content:
+    if not os.path.exists(out_path) or Path(out_path).read_text() != content:
         with open(out_path, "w") as f:
             f.write(content)
 

@@ -170,9 +170,16 @@ if not updated:
         "topic":      topic
     })
 
-with open(CSV_PATH, "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(rows)
+import tempfile
+tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(CSV_PATH), suffix=".csv")
+try:
+    with os.fdopen(tmp_fd, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    os.replace(tmp_path, CSV_PATH)  # atomic rename
+except Exception:
+    os.unlink(tmp_path)
+    raise
 
 print(f"  CSV updated: {CSV_PATH}")
