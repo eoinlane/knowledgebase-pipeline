@@ -312,9 +312,11 @@ UTC_TZ = ZoneInfo("UTC")
 
 
 def find_meetings_by_time(recording_dt, cal_events):
-    """Match a recording to calendar events by timestamp (±60 min).
+    """Match a recording to calendar events by timestamp.
     recording_dt is naive UTC (from transcript header).
-    Calendar event _dt is naive Dublin local time (from AppleScript).
+    Calendar event _dt is naive Dublin local time (from AppleScript/icalBuddy).
+    Match if recording is within 15 min before event start, or up to 60 min after
+    (covers recordings started just before or during a meeting).
     """
     if not recording_dt:
         return []
@@ -327,9 +329,11 @@ def find_meetings_by_time(recording_dt, cal_events):
         evt_dt = e.get("_dt")
         if not evt_dt:
             continue
-        delta = abs((rec_dublin - evt_dt).total_seconds())
-        if delta < 3600:  # within 60 min
-            candidates.append((delta, 0, e))
+        diff = (rec_dublin - evt_dt).total_seconds()
+        # diff > 0: recording started AFTER event start
+        # diff < 0: recording started BEFORE event start
+        if -900 <= diff <= 3600:  # 15 min before to 60 min after event start
+            candidates.append((abs(diff), 0, e))
     candidates.sort(key=lambda x: x[0])
     return candidates[:3]
 
@@ -504,18 +508,18 @@ for note in notes:
         if not already_attendee and p_lower not in attendee_names_lower:
             mentioned_names.append(p)
 
-    # Calendar-based category override: if all known attendees map to one category,
-    # override the LLM classification (unless it's a kept category like other:personal)
-    if attendee_names and note["category"] not in KEEP_CATEGORIES:
+    # Calendar-based category override: if all known attendees unanimously map to one
+    # category AND the LLM gave a generic category (other:*), use the attendee signal.
+    # Don't override specific org categories (NTA, DCC, Paradigm etc.) — the LLM
+    # classification from transcript content is more reliable than calendar overlap.
+    if attendee_names and note["category"].startswith("other:"):
         attendee_categories = set()
         for name in attendee_names:
             cat = PERSON_CATEGORY.get(name)
             if cat:
                 attendee_categories.add(cat)
         if len(attendee_categories) == 1:
-            inferred = attendee_categories.pop()
-            if inferred != note["category"]:
-                note["category"] = inferred
+            note["category"] = attendee_categories.pop()
 
     # Build output filename: date_category_slug.md
     date_str = note["_date"].strftime("%Y-%m-%d")
