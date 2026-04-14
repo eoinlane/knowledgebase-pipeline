@@ -23,6 +23,7 @@ Deletions are handled by the nightly full rebuild (upload_knowledge_base.py).
 
 import hashlib
 import json
+import os
 import sys
 import time
 import requests
