@@ -62,11 +62,16 @@ def save_state(state):
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
+def authenticate():
+    """Authenticate and return headers. Called on startup and on 401 errors."""
+    r = requests.post(f"{BASE_URL}/api/v1/auths/signin",
+                      json={"email": EMAIL, "password": PASSWORD}, timeout=TIMEOUT)
+    r.raise_for_status()
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
 print("Authenticating...", flush=True)
-r = requests.post(f"{BASE_URL}/api/v1/auths/signin",
-                  json={"email": EMAIL, "password": PASSWORD}, timeout=TIMEOUT)
-r.raise_for_status()
-headers = {"Authorization": f"Bearer {r.json()['token']}"}
+headers = authenticate()
+last_auth = time.time()
 print("  OK", flush=True)
 
 # ── Validate / discover collection ────────────────────────────────────────────
@@ -155,33 +160,60 @@ if not to_process:
     sys.exit(0)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+def refresh_auth_if_needed():
+    """Re-authenticate if token is older than 10 minutes."""
+    global headers, last_auth
+    if time.time() - last_auth > 600:
+        headers = authenticate()
+        last_auth = time.time()
+
+
+def refresh_auth_on_401():
+    """Force re-authentication after a 401 error."""
+    global headers, last_auth
+    print("    Re-authenticating...", flush=True)
+    headers = authenticate()
+    last_auth = time.time()
+
+
 def upload_file(filepath: Path) -> str | None:
-    try:
-        r = requests.post(f"{BASE_URL}/api/v1/files/", headers=headers,
-                          files={"file": (filepath.name, filepath.read_bytes(), "text/markdown")},
-                          timeout=TIMEOUT)
-        if r.status_code == 200:
-            return r.json()["id"]
-        print(f"    Upload {r.status_code}: {r.text[:120]}", flush=True)
-    except requests.exceptions.Timeout:
-        print(f"    Timeout: {filepath.name}", flush=True)
+    refresh_auth_if_needed()
+    for attempt in range(2):
+        try:
+            r = requests.post(f"{BASE_URL}/api/v1/files/", headers=headers,
+                              files={"file": (filepath.name, filepath.read_bytes(), "text/markdown")},
+                              timeout=TIMEOUT)
+            if r.status_code == 200:
+                return r.json()["id"]
+            if r.status_code == 401 and attempt == 0:
+                refresh_auth_on_401()
+                continue
+            print(f"    Upload {r.status_code}: {r.text[:120]}", flush=True)
+        except requests.exceptions.Timeout:
+            print(f"    Timeout: {filepath.name}", flush=True)
+        break
     return None
 
 
 def add_to_collection(file_id: str) -> str:
     """Returns 'ok', 'permanent' (empty/duplicate content), or 'error'."""
-    try:
-        r = requests.post(f"{BASE_URL}/api/v1/knowledge/{collection_id}/file/add",
-                          headers=headers, json={"file_id": file_id}, timeout=TIMEOUT)
-        if r.status_code == 200:
-            return "ok"
-        detail = r.text.lower()
-        if "empty" in detail or "duplicate" in detail:
-            return "permanent"
-        print(f"    add_to_collection {r.status_code}: {r.text[:120]}", flush=True)
-        return "error"
-    except requests.exceptions.Timeout:
-        return "error"
+    for attempt in range(2):
+        try:
+            r = requests.post(f"{BASE_URL}/api/v1/knowledge/{collection_id}/file/add",
+                              headers=headers, json={"file_id": file_id}, timeout=TIMEOUT)
+            if r.status_code == 200:
+                return "ok"
+            if r.status_code == 401 and attempt == 0:
+                refresh_auth_on_401()
+                continue
+            detail = r.text.lower()
+            if "empty" in detail or "duplicate" in detail:
+                return "permanent"
+            print(f"    add_to_collection {r.status_code}: {r.text[:120]}", flush=True)
+            return "error"
+        except requests.exceptions.Timeout:
+            return "error"
+    return "error"
 
 
 def remove_from_collection(file_id: str):
