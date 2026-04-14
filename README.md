@@ -1,15 +1,37 @@
 # Knowledge Base Pipeline
 
-Automated pipeline that turns iPhone/Mac voice recordings into a searchable knowledge base in [Open WebUI](https://github.com/open-webui/open-webui).
+Automated pipeline that turns iPhone/Mac voice recordings into a searchable knowledge base with a queryable knowledge graph. Inspired by Tiago Forte's *Building a Second Brain*.
 
 ## What it does
 
-1. **Records** — voice notes captured on iPhone via Apple Notes
-2. **Transcribes** — WhisperX (large-v2, CUDA) on Ubuntu GPU box, with speaker diarisation + ECAPA-TDNN voice embeddings per speaker
-3. **Classifies** — qwen2.5:14b via Ollama assigns category, topic, summary, key people
-4. **Identifies speakers** — maps SPEAKER_XX labels to real names using voice fingerprinting + LLM; rewrites transcript in-place
-5. **Builds** — markdown files per meeting, per person, and per topic — matched against Apple Calendar events
-6. **Uploads** — to Open WebUI knowledge collection, queryable with Claude or deepseek
+1. **Records** — voice notes captured on iPhone via Apple Notes or Plaud recorder
+2. **Transcribes** — WhisperX (large-v3, CUDA) on Ubuntu GPU box, with speaker diarisation + ECAPA-TDNN voice embeddings per speaker
+3. **Classifies** — qwen2.5:14b via Ollama (Haiku fallback) assigns category, topic, summary, key people
+4. **Identifies speakers** — maps SPEAKER_XX labels to real names using voice fingerprinting + LLM (Haiku fallback)
+5. **Extracts insights** — action items (with owners), decisions, follow-ups, open questions via Claude Haiku
+6. **Builds KB** — markdown files per meeting, per person, and per topic — matched against Apple Calendar events
+7. **Builds graph** — queryable knowledge graph: action items, decisions, people, entity resolution
+8. **Uploads** — to Open WebUI knowledge collection, queryable with Claude
+
+### Knowledge Graph (Second Brain layer)
+
+```bash
+python3 ~/query_graph.py prep "Pat Nestor" -p DCC     # pre-meeting briefing
+python3 ~/query_graph.py review                        # weekly digest
+python3 ~/query_graph.py review --weeks 2              # last 2 weeks
+python3 ~/query_graph.py synthesise "Pat Nestor"       # progressive summary (person)
+python3 ~/query_graph.py synthesise --project NTA      # progressive summary (project)
+python3 ~/query_graph.py open --project DCC            # open action items
+python3 ~/query_graph.py done 42                       # close item by ID
+python3 ~/query_graph.py decisions --project NTA       # decisions by project
+python3 ~/query_graph.py history "Jamie Cudden"        # meeting history
+```
+
+- **4,275 action items** (83% with clean owner names), **3,591 decisions**, **451 people**
+- Entity resolution merges WhisperX mishearings, first-name-only → full names
+- Auto-ages stale items (8 weeks), manual closures persist across rebuilds
+- Progressive summarisation via Claude Haiku — trajectory narratives that build on prior syntheses
+- Weekly review: meetings, commitments, decisions, overdue items, people gone quiet
 
 ## Architecture
 
@@ -29,24 +51,29 @@ Ubuntu ~/audio-inbox/Notes/       ← .m4a files
     ↓
 4. reclassify_by_speaker.py  (override LLM category from voice-identified speakers)
     ↓
-5. extract_meeting_insights.py  (qwen2.5:14b)
-   → action items, decisions, follow-ups, open questions → JSON
+5. extract_meeting_insights.py  (Claude Haiku via LiteLLM)
+   → action items (with owners), decisions, follow-ups, open questions → JSON
     ↓ rsync to Mac
 6. build_knowledge_base.py  ← calendar attendees (timestamp match) + insights
-   → ~/knowledge_base/  (meetings/, people/, topics/)
+   → ~/knowledge_base/  (meetings/, people/, topics/, documents/)
     ↓
-7. upload_knowledge_base_incremental.py → Open WebUI
+7. build_contacts_db.py → ~/contacts.db  (meetings, people, attendees, entity resolution)
+    ↓
+8. build_graph.py → ~/graph.db  (action_items, decisions, graph_edges, syntheses)
+    ↓
+9. upload_knowledge_base_incremental.py → Open WebUI
 ```
 
 ## Repository Structure
 
 ```
 ubuntu/          — scripts that run on Ubuntu GPU box (9 scripts)
-mac/             — scripts that run on Mac (8 scripts)
+mac/             — scripts that run on Mac (10 scripts)
 mac/launchd/     — launchd agent scripts (7 scripts)
 shared/          — shared config: OLLAMA_URL, MODEL, PERSON_CATEGORY, name expansions
 tools/           — benchmark_models.py
 tests/           — 62 tests (pytest)
+docs/            — design docs, reference materials
 Makefile         — deploy-ubuntu, deploy-mac, test, clean-ubuntu
 ```
 
@@ -60,9 +87,12 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
 | `ubuntu/classify_transcript.py` | LLM classification: category, topic, summary, key_people |
 | `ubuntu/identify_speakers.py` | Voice catalog match first, LLM fallback. Rewrites transcript in-place |
 | `ubuntu/reclassify_by_speaker.py` | Override LLM category if voice-identified speakers map to one org |
-| `ubuntu/extract_meeting_insights.py` | Extract action items, decisions, follow-ups, open questions |
+| `ubuntu/extract_meeting_insights.py` | Extract action items, decisions, follow-ups via Claude Haiku (with participant context) |
 | `ubuntu/watchdog-transcribe.sh` | Systemd timer (30 min): runs full pipeline, retries failures |
 | `mac/build_knowledge_base.py` | Builds markdown KB from CSV + calendar (timestamp-matched attendees) + insights |
+| `mac/build_graph.py` | Builds knowledge graph: action items, decisions, people edges, entity resolution |
+| `mac/query_graph.py` | CLI: prep, review, synthesise, open, done, decisions, history, stats |
+| `mac/build_contacts_db.py` | Builds contacts DB: meetings, people, attendees, merge suggestions |
 | `mac/launchd/pipeline-health-check.sh` | Hourly: checks Ubuntu, FreeBSD, ollama-box, services, backlog |
 | `shared/config.py` | OLLAMA_URL, MODEL, PERSON_CATEGORY, KEEP_CATEGORIES |
 | `shared/name_expansions.py` | WhisperX mishearing → full name tables per category |
@@ -77,8 +107,10 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
 | Ubuntu GPU box | `eoin@nvidiaubuntubox` (Tailscale: 100.121.184.27) | PNY RTX 5060 Ti 16GB, Ubuntu 24.04 |
 | Open WebUI | `http://100.121.184.27:8080` | Running in Docker |
 | LiteLLM proxy | Ubuntu port 4000 | Routes Claude API calls |
-| Ollama | ollama-box (192.168.0.70) | qwen2.5:14b (classification + speaker ID) |
-| WhisperX | Ubuntu `~/whisper-env/` | large-v2, CUDA, float16, English |
+| Ollama | ollama-box (192.168.0.70) | qwen2.5:14b (classification + speaker ID), Haiku fallback |
+| WhisperX | Ubuntu `~/whisper-env/` | large-v3, CUDA, float16, English |
+| graph.db | Mac `~/graph.db` | Action items, decisions, graph edges, syntheses |
+| contacts.db | Mac `~/contacts.db` | Meetings, people, attendees, entity resolution |
 
 ## Mac launchd Agents
 
@@ -168,9 +200,11 @@ tail -f ~/audio-inbox/speaker_id_batch.log
 
 ## Manual Operations
 
-**Re-run build and incremental upload:**
+**Re-run full build chain:**
 ```bash
 python3 ~/build_knowledge_base.py
+python3 ~/knowledgebase-pipeline/mac/build_contacts_db.py
+python3 ~/knowledgebase-pipeline/mac/build_graph.py
 python3 ~/upload_knowledge_base_incremental.py
 ```
 

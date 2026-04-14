@@ -31,11 +31,18 @@ python3 ~/knowledgebase-pipeline/mac/build_graph.py
 
 **Query the knowledge graph:**
 ```bash
-python3 ~/query_graph.py stats                          # overview
+python3 ~/query_graph.py prep "Pat Nestor" -p DCC       # pre-meeting briefing
+python3 ~/query_graph.py review                         # weekly digest
+python3 ~/query_graph.py review --weeks 2               # last 2 weeks
+python3 ~/query_graph.py synthesise "Pat Nestor"        # progressive summary (person)
+python3 ~/query_graph.py synthesise --project NTA       # progressive summary (project)
 python3 ~/query_graph.py open --project DCC             # open action items
 python3 ~/query_graph.py open --person "Pat Nestor"     # items for a person
+python3 ~/query_graph.py done 42                        # close item by ID
+python3 ~/query_graph.py done "send slides"             # close by text match
 python3 ~/query_graph.py decisions --project NTA        # decisions by project
 python3 ~/query_graph.py history "Jamie Cudden"         # meeting history
+python3 ~/query_graph.py stats                          # graph overview
 ```
 
 **Contacts web UI:**
@@ -169,6 +176,16 @@ dismissed_pairs (name1, name2)
 **Entity resolution in graph:** Merges WhisperX mishearings (e.g. `pat-nester` → `pat-nestor`), first-name-only → full names via contacts.db resolved_name (preferring longer name), strips SPEAKER_XX/unknown/compound/junk entries. Resolver built from hardcoded mishearings + contacts.db mappings.
 
 **Insights extraction** (`extract_meeting_insights.py`) now passes CSV `key_people` + category + topic to the LLM as participant context, so action items get real owner names even when transcript has SPEAKER_XX labels.
+
+**Action item lifecycle:** Items older than 8 weeks are auto-marked `stale` during rebuild. Manual closures via `done` command are persisted to `~/.graph_closures.json` (keyed by `meeting_filename::text_prefix`) and survive rebuilds.
+
+**Progressive summarisation:** `synthesise` command calls Claude Haiku via LiteLLM to produce trajectory narratives per person/project from meeting summaries, action items, and decisions. Stored in `syntheses` table (preserved across rebuilds). On re-run, previous synthesis is included as context for progressive compression.
+
+**Weekly review:** `review` command shows meetings by project, your commitments, others' commitments, decisions made, overdue items (2-8 weeks), and people gone quiet (3+ weeks).
+
+**Haiku fallback:** `classify_transcript.py` and `identify_speakers.py` try ollama-box first, fall back to Claude Haiku via LiteLLM if ollama is unreachable. Pipeline keeps running when Proxmox box is offline.
+
+**Design inspiration:** Tiago Forte's "Building a Second Brain" (CODE framework). Pipeline implements Capture (automated), Organise (domain categories), Distil (LLM extraction + progressive summarisation), and Express (prep briefings, weekly review). See `docs/` for the book.
 
 ### Upload Design
 
