@@ -26,6 +26,7 @@ from pathlib import Path
 import yaml
 
 KB_DIR = Path.home() / "knowledge_base" / "meetings"
+DOCS_DIR = Path.home() / "knowledge_base" / "documents"
 INSIGHTS_DIR = "/tmp/kb_insights"
 CONTACTS_DB = Path.home() / "contacts.db"
 GRAPH_DB = Path.home() / "graph.db"
@@ -123,6 +124,16 @@ def init_db(conn):
         CREATE INDEX IF NOT EXISTS idx_ai_owner   ON action_items(owner);
         CREATE INDEX IF NOT EXISTS idx_ai_meeting ON action_items(meeting_filename);
         CREATE INDEX IF NOT EXISTS idx_dec_meeting ON decisions(meeting_filename);
+
+        CREATE TABLE IF NOT EXISTS syntheses (
+            id          INTEGER PRIMARY KEY,
+            entity_type TEXT,     -- 'person' or 'project'
+            entity_id   TEXT,     -- slug or category name
+            text        TEXT,
+            model       TEXT,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_synth_entity ON syntheses(entity_type, entity_id);
     """)
 
 
@@ -470,6 +481,45 @@ def build_graph():
                     stats["edges"] += 1
                     stats["transcript_people"] += 1
 
+    # --- Index documents/ into the graph ---
+    docs_count = 0
+    if DOCS_DIR.exists():
+        for doc_path in sorted(DOCS_DIR.glob("*.md")):
+            fm, body = parse_frontmatter_and_body(doc_path)
+            if not fm:
+                continue
+
+            doc_filename = doc_path.name
+            category = fm.get("category", "")
+            people = fm.get("people", [])
+            if isinstance(people, str):
+                people = [people]
+
+            # PART_OF edge for category
+            if category:
+                add_edge(conn, "document", doc_filename, "PART_OF", "category", category)
+                stats["edges"] += 1
+
+            # People edges from frontmatter
+            for person in people:
+                slug = resolve_person_slug(slugify(person), resolver)
+                if slug and slug != "eoin-lane":
+                    add_edge(conn, "person", slug, "REFERENCED_IN", "document", doc_filename)
+                    stats["edges"] += 1
+
+            # Scan body for known people
+            if known_people and body:
+                found = scan_transcript_for_names(body, known_people)
+                seen_doc_people = set()
+                for name in found:
+                    slug = resolve_person_slug(slugify(name), resolver)
+                    if slug and slug != "eoin-lane" and slug not in seen_doc_people:
+                        add_edge(conn, "person", slug, "REFERENCED_IN", "document", doc_filename, confidence=0.8)
+                        seen_doc_people.add(slug)
+                        stats["edges"] += 1
+
+            docs_count += 1
+
     # --- Auto-age: mark items older than STALE_WEEKS as 'stale' ---
     cutoff = (datetime.date.today() - datetime.timedelta(weeks=STALE_WEEKS)).isoformat()
     stale_count = conn.execute(
@@ -509,6 +559,7 @@ def build_graph():
     print(f"  {stats['actions']} action items ({open_count} open, {stale_count} auto-staled, {closures_applied} manually closed)")
     print(f"  {stats['decisions']} decisions")
     print(f"  {stats['edges']} graph edges")
+    print(f"  {docs_count} documents indexed")
     print(f"  People enrichment: {stats['insights_people']} from insights, {stats['transcript_people']} from transcript scan")
 
 

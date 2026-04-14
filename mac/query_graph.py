@@ -11,6 +11,8 @@ Usage:
   python3 ~/query_graph.py done 42                       # mark action item #42 as done
   python3 ~/query_graph.py done "send Pat the spec"      # mark by text match
   python3 ~/query_graph.py done --stale 6                # close items older than 6 weeks
+  python3 ~/query_graph.py synthesise "Pat Nestor"        # progressive summary for a person
+  python3 ~/query_graph.py synthesise --project DCC      # progressive summary for a project
   python3 ~/query_graph.py review                        # this week's digest
   python3 ~/query_graph.py review --weeks 2              # last 2 weeks
   python3 ~/query_graph.py decisions --project DCC       # decisions for DCC
@@ -23,6 +25,7 @@ import json
 import re
 import sqlite3
 import sys
+import urllib.request
 from pathlib import Path
 
 GRAPH_DB = Path.home() / "graph.db"
@@ -493,6 +496,207 @@ def cmd_done(args):
     conn.close()
 
 
+LITELLM_URL = "http://100.121.184.27:4000/v1/chat/completions"
+LITELLM_MODEL = "claude-haiku-4-5"
+
+
+def call_haiku(system_prompt, user_prompt):
+    """Call Claude Haiku via LiteLLM proxy."""
+    payload = json.dumps({
+        "model": LITELLM_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0,
+    }).encode()
+    req = urllib.request.Request(
+        LITELLM_URL, data=payload,
+        headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        result = json.loads(resp.read())
+    return result["choices"][0]["message"]["content"].strip()
+
+
+def cmd_synthesise(args):
+    if not args.name and not args.project:
+        print("Usage: query_graph.py synthesise \"Person Name\" or synthesise --project DCC", file=sys.stderr)
+        sys.exit(1)
+
+    conn = get_conn(GRAPH_DB)
+    today = _dt.date.today().isoformat()
+
+    if args.project:
+        entity_type = "project"
+        entity_id = args.project.upper()
+        label = entity_id
+    else:
+        entity_type = "person"
+        entity_id = slugify(args.name)
+        label = args.name
+
+    # --- Gather all data for this entity ---
+
+    # Meetings
+    if entity_type == "person":
+        meetings = conn.execute("""
+            SELECT DISTINCT to_id as fn FROM graph_edges
+            WHERE from_type = 'person' AND from_id = ?
+              AND edge_type IN ('SPOKE_IN', 'MENTIONED_IN')
+            ORDER BY to_id
+        """, (entity_id,)).fetchall()
+        if not meetings:
+            meetings = conn.execute("""
+                SELECT DISTINCT to_id as fn FROM graph_edges
+                WHERE from_type = 'person' AND from_id LIKE ?
+                  AND edge_type IN ('SPOKE_IN', 'MENTIONED_IN')
+                ORDER BY to_id
+            """, (f"%{entity_id}%",)).fetchall()
+    else:
+        meetings = conn.execute("""
+            SELECT DISTINCT to_id as fn FROM graph_edges
+            WHERE edge_type = 'PART_OF' AND to_type = 'category' AND to_id = ?
+            ORDER BY from_id
+        """, (entity_id,)).fetchall()
+        # For projects, the meeting filename is in from_id
+        meetings = conn.execute("""
+            SELECT DISTINCT from_id as fn FROM graph_edges
+            WHERE edge_type = 'PART_OF' AND to_type = 'category' AND to_id = ?
+              AND from_type = 'meeting'
+            ORDER BY from_id DESC
+        """, (entity_id,)).fetchall()
+
+    meeting_fns = [m["fn"] for m in meetings]
+
+    if not meeting_fns:
+        print(f"No meetings found for {label}")
+        conn.close()
+        return
+
+    # Get summaries from KB markdown files
+    kb_dir = Path.home() / "knowledge_base" / "meetings"
+    summaries = []
+    for fn in meeting_fns[-30:]:  # Last 30 meetings max
+        md_path = kb_dir / fn
+        if not md_path.exists():
+            continue
+        with open(md_path) as f:
+            content = f.read()
+        # Extract summary section
+        sm = re.search(r"## Summary\n\n(.+?)(\n\n##|\Z)", content, re.DOTALL)
+        if sm:
+            date = meeting_date(fn)
+            cat = meeting_category(fn)
+            summaries.append(f"[{date} | {cat}] {sm.group(1).strip()}")
+
+    # Action items
+    if entity_type == "person":
+        actions = conn.execute("""
+            SELECT meeting_filename, text, status FROM action_items
+            WHERE LOWER(owner) LIKE ? OR LOWER(owner) LIKE ?
+            ORDER BY meeting_filename DESC LIMIT 20
+        """, (f"%{args.name.lower()}%", f"%{entity_id}%")).fetchall()
+    else:
+        all_actions = conn.execute("""
+            SELECT meeting_filename, text, owner, status FROM action_items
+            WHERE status = 'open' ORDER BY meeting_filename DESC
+        """).fetchall()
+        actions = [a for a in all_actions if meeting_category(a["meeting_filename"]).upper() == entity_id][:20]
+
+    # Decisions
+    all_decisions = conn.execute("SELECT meeting_filename, text FROM decisions ORDER BY meeting_filename DESC").fetchall()
+    if entity_type == "person":
+        decisions = [d for d in all_decisions if d["meeting_filename"] in meeting_fns][:15]
+    else:
+        decisions = [d for d in all_decisions if meeting_category(d["meeting_filename"]).upper() == entity_id][:15]
+
+    # Documents
+    if entity_type == "person":
+        docs = conn.execute("""
+            SELECT to_id FROM graph_edges
+            WHERE from_type = 'person' AND from_id = ? AND to_type = 'document'
+        """, (entity_id,)).fetchall()
+    else:
+        docs = conn.execute("""
+            SELECT from_id FROM graph_edges
+            WHERE edge_type = 'PART_OF' AND to_id = ? AND from_type = 'document'
+        """, (entity_id,)).fetchall()
+
+    # Previous synthesis (for progressive compression)
+    prev = conn.execute("""
+        SELECT text, created_at FROM syntheses
+        WHERE entity_type = ? AND entity_id = ?
+        ORDER BY created_at DESC LIMIT 1
+    """, (entity_type, entity_id)).fetchone()
+
+    # --- Build the LLM prompt ---
+    system = """You are a strategic advisor synthesising meeting history for a consultant called Eoin Lane.
+Write a concise narrative (200-400 words) covering:
+1. TRAJECTORY — how has this relationship/project evolved over time?
+2. CURRENT STATE — what's active right now, what's blocked, what's the momentum?
+3. KEY PEOPLE — who matters and what are their roles/positions?
+4. OPEN THREADS — what's unresolved or at risk of falling through the cracks?
+5. STRATEGIC NOTES — what should Eoin be thinking about for the next interaction?
+
+Be specific with names, dates, and concrete details. No filler. This is a working document, not a report."""
+
+    parts = [f"Synthesise the relationship/project: **{label}**\n"]
+    parts.append(f"Total meetings: {len(meeting_fns)} (showing last {len(summaries)})\n")
+
+    if prev:
+        parts.append(f"--- PREVIOUS SYNTHESIS ({prev['created_at']}) ---")
+        parts.append(prev["text"])
+        parts.append("--- END PREVIOUS SYNTHESIS ---\n")
+        parts.append("Update and compress this synthesis with the new information below.\n")
+
+    if summaries:
+        parts.append("## Meeting Summaries (chronological)")
+        parts.extend(summaries[-20:])
+
+    if actions:
+        parts.append("\n## Open Action Items")
+        for a in actions:
+            status = a["status"]
+            owner = a["owner"] if "owner" in a.keys() else ""
+            parts.append(f"  [{status}] {owner}: {a['text'][:100]}")
+
+    if decisions:
+        parts.append("\n## Key Decisions")
+        for d in decisions:
+            date = meeting_date(d["meeting_filename"])
+            parts.append(f"  [{date}] {d['text'][:100]}")
+
+    if docs:
+        parts.append(f"\n## Related Documents: {len(docs)}")
+
+    user_prompt = "\n".join(parts)
+
+    # --- Call Haiku ---
+    print(f"Synthesising {entity_type}: {label} ({len(meeting_fns)} meetings, {len(actions)} actions, {len(decisions)} decisions)...")
+
+    try:
+        result = call_haiku(system, user_prompt)
+    except Exception as e:
+        print(f"Error calling Haiku: {e}", file=sys.stderr)
+        conn.close()
+        return
+
+    # --- Store the synthesis ---
+    conn.execute(
+        "INSERT INTO syntheses (entity_type, entity_id, text, model) VALUES (?, ?, ?, ?)",
+        (entity_type, entity_id, result, LITELLM_MODEL)
+    )
+    conn.commit()
+
+    print(f"\n# Synthesis: {label}")
+    print(f"Generated: {today} | {len(meeting_fns)} meetings | {len(actions)} action items | {len(decisions)} decisions\n")
+    print(result)
+    print()
+
+    conn.close()
+
+
 def cmd_review(args):
     conn = get_conn(GRAPH_DB)
     today = _dt.date.today()
@@ -673,6 +877,10 @@ def main():
     p_hist.add_argument("name", nargs="?", help="Person name")
     p_hist.add_argument("--limit", "-n", type=int, default=10)
 
+    p_synth = sub.add_parser("synthesise", help="Progressive summarisation for a person or project")
+    p_synth.add_argument("name", nargs="?", help="Person name")
+    p_synth.add_argument("--project", "-p", help="Synthesise a project instead of a person")
+
     p_review = sub.add_parser("review", help="Weekly review digest")
     p_review.add_argument("--weeks", "-w", type=int, default=1, help="How many weeks back (default: current week)")
 
@@ -690,6 +898,8 @@ def main():
         cmd_decisions(args)
     elif args.command == "history":
         cmd_history(args)
+    elif args.command == "synthesise":
+        cmd_synthesise(args)
     elif args.command == "review":
         cmd_review(args)
     elif args.command == "stats":
