@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 .pytest_cache/
 decision-twin-proposal.pdf
+docs/*.epub
