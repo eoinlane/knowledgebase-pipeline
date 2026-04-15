@@ -27,6 +27,7 @@ CATEGORY_NAME_EXPANSIONS = {
     "NTA": {
         "cathal": "Cathal Bellew",
         "cahal": "Cathal Bellew",
+        "cathal murphy": "Cathal Bellew",
         "declan": "Declan Sheehan",
         "neil": "Neil",
         "mark": "Mark O'Brien Moody",

@@ -220,6 +220,7 @@ def build_person_resolver():
         "rob-hell": "rob-howell",
         "hugh-cregan": "hugh-creegan",
         "kevin-dunn": "kevin-dunne",
+        "cathal-murphy": "cathal-bellew",
     }
     resolver.update(mishearings)
 
