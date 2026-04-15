@@ -48,12 +48,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Step 4: Upload to Open WebUI
-echo "$(date): Uploading to Open WebUI..." >> "$LOG"
-/usr/local/bin/python3 /Users/eoin/upload_knowledge_base.py >> "$LOG" 2>&1
-if [ $? -ne 0 ]; then
-    echo "$(date): upload FAILED" >> "$LOG"
-    exit 1
-fi
+# Step 4: Open WebUI upload disabled — replaced by Claude Code + query_graph.py
+# To re-enable: /usr/local/bin/python3 /Users/eoin/upload_knowledge_base_incremental.py
 
 echo "$(date): KB rebuild complete" >> "$LOG"
