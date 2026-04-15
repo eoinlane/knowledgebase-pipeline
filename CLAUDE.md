@@ -167,9 +167,9 @@ dismissed_pairs (name1, name2)
 
 `build_graph.py` runs after `build_contacts_db.py`. Reads KB frontmatter + insights JSONs (`/tmp/kb_insights/`), outputs `~/graph.db` (SQLite). `query_graph.py` is the CLI query tool.
 
-**Schema:** `action_items` (text, owner, status), `decisions` (text, status), `graph_edges` (from/to type+id, edge_type, confidence), `concepts` (empty — Phase 4).
+**Schema:** `action_items` (text, owner, status), `decisions` (text, status), `graph_edges` (from/to type+id, edge_type, confidence), `concepts` (label, category, mention_count — populated from key_topics), `syntheses` (entity_type, entity_id, text — LLM-generated, preserved across rebuilds).
 
-**Edge types:** `SPOKE_IN` (calendar attendee → meeting), `MENTIONED_IN` (person → meeting), `PRODUCED` (meeting → action_item/decision), `ASSIGNED_TO` (action_item → person), `FOLLOW_UP` (person → meeting), `PART_OF` (meeting → category).
+**Edge types:** `SPOKE_IN` (calendar attendee → meeting), `MENTIONED_IN` (person → meeting), `PRODUCED` (meeting → action_item/decision), `ASSIGNED_TO` (action_item → person), `FOLLOW_UP` (person → meeting), `PART_OF` (meeting/document → category), `DISCUSSED` (meeting → concept/tag), `REFERENCED_IN` (person → document).
 
 **People enrichment:** Two sources beyond frontmatter: (1) action item owners + follow-up assignees from insights JSON (confidence 0.9), (2) known-name scanning of transcript body against contacts.db roster (confidence 0.8).
 
@@ -185,11 +185,17 @@ dismissed_pairs (name1, name2)
 
 **Haiku fallback:** `classify_transcript.py` and `identify_speakers.py` try ollama-box first, fall back to Claude Haiku via LiteLLM if ollama is unreachable. Pipeline keeps running when Proxmox box is offline.
 
-**Design inspiration:** Tiago Forte's "Building a Second Brain" (CODE framework). Pipeline implements Capture (automated), Organise (domain categories), Distil (LLM extraction + progressive summarisation), and Express (prep briefings, weekly review). See `docs/` for the book.
+**Tags/concepts:** `key_topics` from insights extraction are normalised and stored in the `concepts` table with `DISCUSSED` edges to meetings. Queryable via `query_graph.py tags` — browse top tags, filter by project, search cross-project.
 
-### Upload Design
+**Calendar-based category override:** If all calendar attendees map to one category via `PERSON_CATEGORY` and the LLM gave a generic `other:*` category, the attendee signal overrides. Does not override specific org categories.
 
-`upload_knowledge_base_incremental.py` is hash-based — derives state from the Open WebUI API on each run (no local state file dependency). If a file's content already exists by SHA-256 hash, it links rather than re-uploads (orphan rescue). Files that Open WebUI permanently rejects are marked `skip: true` and skipped on future runs unless content changes.
+**Calendar export:** Uses `icalBuddy` (not AppleScript) with stable calendar UIDs. Expands recurring events, runs in ~1 second, no Calendar.app dependency. Config at `~/.local/bin/export-calendars.sh`.
+
+**Design inspiration:** Tiago Forte's "Building a Second Brain" (CODE framework). Pipeline implements Capture (automated), Organise (domain categories), Distil (LLM extraction + progressive summarisation), Express (prep briefings, weekly review, tags). See `docs/` for the book.
+
+### Upload Design (disabled)
+
+Open WebUI upload disabled from nightly rebuild — replaced by Claude Code + `query_graph.py` for KB queries. Upload scripts still exist for manual use if needed. Open WebUI still runs for general chat.
 
 ### iCloud File Access
 

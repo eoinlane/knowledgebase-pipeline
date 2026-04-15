@@ -11,7 +11,7 @@ Automated pipeline that turns iPhone/Mac voice recordings into a searchable know
 5. **Extracts insights** — action items (with owners), decisions, follow-ups, open questions via Claude Haiku
 6. **Builds KB** — markdown files per meeting, per person, and per topic — matched against Apple Calendar events
 7. **Builds graph** — queryable knowledge graph: action items, decisions, people, entity resolution
-8. **Uploads** — to Open WebUI knowledge collection, queryable with Claude
+8. **Queries** — via Claude Code + query_graph.py (prep, review, synthesise, tags, open, done)
 
 ### Knowledge Graph (Second Brain layer)
 
@@ -21,6 +21,8 @@ python3 ~/query_graph.py review                        # weekly digest
 python3 ~/query_graph.py review --weeks 2              # last 2 weeks
 python3 ~/query_graph.py synthesise "Pat Nestor"       # progressive summary (person)
 python3 ~/query_graph.py synthesise --project NTA      # progressive summary (project)
+python3 ~/query_graph.py tags                          # top tags across all projects
+python3 ~/query_graph.py tags "digital twin"           # find meetings by topic
 python3 ~/query_graph.py open --project DCC            # open action items
 python3 ~/query_graph.py done 42                       # close item by ID
 python3 ~/query_graph.py decisions --project NTA       # decisions by project
@@ -61,7 +63,7 @@ Ubuntu ~/audio-inbox/Notes/       ← .m4a files
     ↓
 8. build_graph.py → ~/graph.db  (action_items, decisions, graph_edges, syntheses)
     ↓
-9. upload_knowledge_base_incremental.py → Open WebUI
+9. query_graph.py → CLI queries (prep, review, synthesise, tags, open, done)
 ```
 
 ## Repository Structure
@@ -109,8 +111,9 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
 | LiteLLM proxy | Ubuntu port 4000 | Routes Claude API calls |
 | Ollama | ollama-box (192.168.0.70) | qwen2.5:14b (classification + speaker ID), Haiku fallback |
 | WhisperX | Ubuntu `~/whisper-env/` | large-v3, CUDA, float16, English |
-| graph.db | Mac `~/graph.db` | Action items, decisions, graph edges, syntheses |
+| graph.db | Mac `~/graph.db` | Action items, decisions, graph edges, concepts/tags, syntheses |
 | contacts.db | Mac `~/contacts.db` | Meetings, people, attendees, entity resolution |
+| icalBuddy | Mac (Homebrew) | Calendar export with UID-based matching, recurring event expansion |
 
 ## Mac launchd Agents
 
@@ -130,17 +133,11 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
 - **RAG settings**: CHUNK_SIZE 4000, CHUNK_OVERLAP 400, TOP_K 20
 - **Recommended query model**: `claude-sonnet-4-6` via LiteLLM proxy
 
-## Upload Design
+## Query Interface
 
-The incremental upload (`upload_knowledge_base_incremental.py`) uses hash-based change detection:
+Open WebUI upload has been replaced by **Claude Code + query_graph.py** for KB queries. The graph provides structured retrieval (people, projects, tags, action items, decisions) which is more reliable than Open WebUI's vector RAG for this use case.
 
-- Fetches all remote files from Open WebUI API on each run — derives state from the API, not a local file
-- Computes SHA-256 of each local file and compares against stored hash
-- **Orphan rescue**: if a file's content already exists in the system (by hash), it links that file instead of re-uploading — automatically recovers from interrupted uploads
-- **Permanent skip**: files that Open WebUI can't add (empty content / duplicate vector chunks) are marked `skip: true` in state with their hash, so they don't retry unless content changes
-- State file: `~/.local/bin/kb-upload-state.json` — `{filename: {file_id, hash}}` or `{filename: {file_id: null, hash, skip: true}}`
-
-The nightly full rebuild (`upload_knowledge_base.py`) deletes and recreates the collection from scratch — clearing any accumulated vector store issues and retrying previously skipped files.
+Upload scripts (`upload_knowledge_base.py`, `upload_knowledge_base_incremental.py`) remain in the repo for manual use. Open WebUI is still running for general Claude/qwen chat.
 
 ## iCloud Locking
 
@@ -205,7 +202,6 @@ tail -f ~/audio-inbox/speaker_id_batch.log
 python3 ~/build_knowledge_base.py
 python3 ~/knowledgebase-pipeline/mac/build_contacts_db.py
 python3 ~/knowledgebase-pipeline/mac/build_graph.py
-python3 ~/upload_knowledge_base_incremental.py
 ```
 
 **Re-classify a recording that timed out:**
