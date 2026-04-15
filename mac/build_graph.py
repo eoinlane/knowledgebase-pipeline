@@ -190,121 +190,13 @@ def scan_transcript_for_names(transcript_body, known_names):
     return found
 
 
-def build_person_resolver():
-    """Build a slug → canonical_slug mapping for entity resolution.
+def _ensure_pipeline_path():
+    pipeline_dir = os.environ.get("PIPELINE_DIR", os.path.expanduser("~/knowledgebase-pipeline"))
+    if os.path.isdir(pipeline_dir) and pipeline_dir not in sys.path:
+        sys.path.insert(0, pipeline_dir)
 
-    Sources:
-    1. contacts.db resolved_name (e.g. "Cathal Murphy" → "Cathal Bellew")
-    2. Known WhisperX mishearings (hardcoded)
-    3. Strip question marks, brackets, compound "and" names
-    4. Filter out SPEAKER_XX, unknown, junk entries
-    """
-    resolver = {}
-
-    # --- Hardcoded mishearing fixes ---
-    mishearings = {
-        "pat-nester": "pat-nestor",
-        "pat-nestor": "pat-nestor",  # canonical spelling
-        "owen-lane": "eoin-lane",
-        "owen-lane-(eoin)": "eoin-lane",
-        "owen-lane-(eoin-lane)": "eoin-lane",
-        "owen-(eoin-lane)": "eoin-lane",
-        "eoghan-lane": "eoin-lane",
-        "declan-sheen": "declan-sheehan",
-        "aidan-bly": "aidan-blighe",
-        "david-floods": "david-flood",
-        "david-floyd": "david-flood",
-        "cahal-dri": "cathal-bellew",
-        "ian-o'keefe": "ian-o'keeffe",
-        "philip-lestrange": "philip-l'estrange",
-        "rob-hell": "rob-howell",
-        "hugh-cregan": "hugh-creegan",
-        "kevin-dunn": "kevin-dunne",
-        "cathal-murphy": "cathal-bellew",
-    }
-    resolver.update(mishearings)
-
-    # --- Pull resolved names from contacts.db ---
-    # Always resolve toward the LONGER (fuller) name to avoid collapsing
-    # "Jamie Cudden" → "Jamie". Build both directions then pick the longer target.
-    if CONTACTS_DB.exists():
-        conn = sqlite3.connect(CONTACTS_DB)
-        rows = conn.execute("""
-            SELECT name, resolved_name FROM people
-            WHERE resolved_name IS NOT NULL
-              AND resolved_name != name
-              AND name NOT LIKE 'SPEAKER%'
-        """).fetchall()
-        conn.close()
-        for name, resolved in rows:
-            src_slug = slugify(name)
-            dst_slug = slugify(resolved)
-            if src_slug == dst_slug:
-                continue
-            # Always map the shorter slug to the longer one
-            if len(src_slug) > len(dst_slug):
-                # name is longer — map resolved → name
-                if dst_slug not in mishearings:  # don't override hardcoded fixes
-                    resolver[dst_slug] = src_slug
-            else:
-                # resolved is longer — map name → resolved
-                if src_slug not in mishearings:
-                    resolver[src_slug] = dst_slug
-
-    return resolver
-
-
-def resolve_person_slug(slug, resolver):
-    """Resolve a person slug to its canonical form. Returns None to discard."""
-    # Strip question marks and normalize dots to hyphens
-    slug = slug.rstrip("?")
-    slug = slug.replace(".", "-")
-
-    # Discard junk entries
-    if not slug or len(slug) < 3:
-        return None
-    if slug.startswith("speaker-") or slug == "unknown":
-        return None
-    if slug.startswith("unknown-"):
-        return None
-    # Discard compound names with "and" or comma-separated (e.g. "eoin-lane-and-declan-sheehan")
-    if "-and-" in slug or slug.endswith("-and-team"):
-        return None
-    # Discard comma-separated compound entries (e.g. "eoin-lane,-jamie,-ashish")
-    if ",-" in slug:
-        return None
-    # Discard entries with parenthetical qualifiers (e.g. "eoin-lane-(to-facilitate)")
-    if "-(" in slug:
-        return None
-    # Discard entries with semicolons or "with" compounds
-    if ";" in slug or "-with-" in slug:
-        return None
-    # Discard entries like "eoin-lane-to-ask-..." (action descriptions, not names)
-    if "-to-" in slug and len(slug) > 30:
-        return None
-    # Discard "or" compounds (e.g. "long-thanh-mai-or-mahsa-mahdinejad")
-    if "-or-" in slug:
-        return None
-    # Discard email addresses
-    if "@" in slug:
-        return None
-    # Discard non-person entries
-    non_persons = {"surveillance-authority", "new-ceo", "microsoft-contacts",
-                   "microsoft-representatives", "dr--jamie", "father"}
-    if slug in non_persons:
-        return None
-    # Discard team/role/relationship descriptions
-    junk_patterns = ["team", "officer", "authority", "grandfather", "father",
-                     "vp-of-", "chief-", "participants", "resource-placed",
-                     "'s-"]
-    if any(p in slug for p in junk_patterns):
-        return None
-
-    # Apply resolver
-    if slug in resolver:
-        return resolver[slug]
-
-    return slug
+_ensure_pipeline_path()
+from shared.entity_resolver import build_resolver, resolve_slug as resolve_person_slug
 
 
 def build_graph():
@@ -315,7 +207,7 @@ def build_graph():
     print(f"  Loaded {len(known_people)} known people for transcript scanning")
 
     # Build entity resolver
-    resolver = build_person_resolver()
+    resolver = build_resolver()
     print(f"  Built resolver with {len(resolver)} mappings")
 
     # Build UUID → insights JSON mapping
