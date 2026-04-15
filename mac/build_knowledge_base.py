@@ -267,6 +267,7 @@ for path in [
     "/tmp/calendar_events.txt",
     "/tmp/cal_extra_15.txt",
     "/tmp/cal_nta.txt",
+    "/tmp/cal_adapt.txt",
     "/tmp/cal_personal.txt",
     "/tmp/cal_home.txt",
 ]:

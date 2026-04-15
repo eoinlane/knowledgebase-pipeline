@@ -78,6 +78,7 @@ export_calendar "E6E63F94-588F-4A15-8809-1889C23D6BC4" "/tmp/cal_personal.txt"  
 export_calendar "C1BAE074-A8C8-476F-A168-9680D48777BB" "/tmp/cal_home.txt"           "Home"               || ERRORS=$((ERRORS + 1))
 export_calendar "2D0FFC84-CE8A-4467-B66D-B4F0655E4956" "/tmp/cal_extra_15.txt"      "Calendar (DCC/ADAPT)" || ERRORS=$((ERRORS + 1))
 export_calendar "3DE8357C-DA39-47BA-A8A1-01F1D3B55CF6" "/tmp/cal_nta.txt"           "Calendar (NTA)"     || ERRORS=$((ERRORS + 1))
+export_calendar "1A4BFA9C-4D8E-435A-8642-DF97D468939B" "/tmp/cal_adapt.txt"         "ADAPT (Google)"     || ERRORS=$((ERRORS + 1))
 
 if [ "$ERRORS" -gt 0 ]; then
     echo "$(date): Calendar export completed with $ERRORS failures" >> "$LOG"
