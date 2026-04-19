@@ -126,7 +126,7 @@ def reclassify(txt_path, csv_path, dry_run=False):
         for line in f:
             if line.startswith("File:"):
                 uuid = line.replace("File:", "").strip()
-                uuid = re.sub(r'\.(m4a|txt)$', '', uuid)
+                uuid = re.sub(r'\.(m4a|mp3|txt)+$', '', uuid)
                 break
         else:
             return None

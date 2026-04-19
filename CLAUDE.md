@@ -246,4 +246,4 @@ The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"`
 - Categories: `NTA`, `DCC`, `DFB`, `ADAPT`, `Diotima`, `Paradigm`, `TBS`, `other:*`
 - "Owen Lane" in transcripts = Eoin Lane (WhisperX mishearing)
 - `primary_org` in the people table = most frequent meeting category, not actual employer
-- Ubuntu shell is **fish** — wrap background commands: `bash -c '...'`
+- Ubuntu shell is **bash** (changed from fish 2026-04-19)

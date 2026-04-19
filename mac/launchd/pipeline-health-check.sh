@@ -80,6 +80,47 @@ if [ "${RECENT_RUNS:-0}" -ge 5 ] && [ "${RECENT_SKIPS:-0}" -eq "${RECENT_RUNS:-0
     fi
 fi
 
+# ── 5a. Disk space on Ubuntu ─────────────────────────────────────────────────
+DISK_PCT=$(ssh -o ConnectTimeout=10 "$UBUNTU" "df /home/eoin --output=pcent 2>/dev/null | tail -1 | tr -d ' %'" 2>/dev/null)
+log "Ubuntu disk: ${DISK_PCT:-unknown}% used"
+if [ "${DISK_PCT:-0}" -gt 90 ]; then
+    alert "Ubuntu disk nearly full" "${DISK_PCT}% used — writes may fail silently"
+fi
+
+# ── 5b. 0-byte insight files (from prior disk-full failures) ────────────────
+ZERO_FILES=$(ssh -o ConnectTimeout=10 "$UBUNTU" "find ~/audio-inbox/Insights -name '*.json' -empty 2>/dev/null | wc -l" 2>/dev/null)
+log "0-byte insight files: ${ZERO_FILES:-0}"
+if [ "${ZERO_FILES:-0}" -gt 0 ]; then
+    alert "0-byte insights files" "${ZERO_FILES} empty .json files — insights extraction failed silently"
+fi
+
+# ── 5c. Insights lag — transcripts without valid insights ───────────────────
+INSIGHTS_LAG=$(ssh -o ConnectTimeout=10 "$UBUNTU" "bash -c '
+    count=0
+    for t in ~/audio-inbox/Transcriptions/*.txt; do
+        [ -f \"\$t\" ] || continue
+        uuid=\$(basename \"\$t\" .txt)
+        ins=~/audio-inbox/Insights/\${uuid}.json
+        if [ ! -f \"\$ins\" ] || [ ! -s \"\$ins\" ]; then
+            count=\$((count+1))
+        fi
+    done
+    echo \$count
+'" 2>/dev/null)
+log "Transcripts without insights: ${INSIGHTS_LAG:-unknown}"
+if [ "${INSIGHTS_LAG:-0}" -gt 150 ]; then
+    alert "Insights backlog growing" "${INSIGHTS_LAG} transcripts have no insights JSON (was ~134 at baseline)"
+fi
+
+# ── 5d. graph.db staleness ──────────────────────────────────────────────────
+if [ -f "$HOME/graph.db" ]; then
+    GRAPH_AGE=$(( ( $(date +%s) - $(stat -f %m "$HOME/graph.db") ) / 3600 ))
+    log "graph.db age: ${GRAPH_AGE}h"
+    if [ "$GRAPH_AGE" -gt 48 ]; then
+        alert "graph.db stale" "Last rebuilt ${GRAPH_AGE}h ago"
+    fi
+fi
+
 # ── 5. Last transcription too old? ───────────────────────────────────────────
 LAST_TRANS=$(ssh "$UBUNTU" "find ~/audio-inbox/Transcriptions -name '*.txt' -not -empty -newer ~/audio-inbox/Transcriptions/EAE996C7-DA30-4D4A-8E9F-8F5D2E13BAA8.txt | wc -l" 2>/dev/null)
 NEWEST_AGE=$(ssh "$UBUNTU" "bash -c '
@@ -90,6 +131,46 @@ NEWEST_AGE=$(ssh "$UBUNTU" "bash -c '
 log "Newest transcript age: ${NEWEST_AGE}h"
 if [ "${NEWEST_AGE:-0}" -gt 24 ] && [ "${PENDING:-0}" -gt 0 ]; then
     alert "No transcription in 24h" "Newest transcript is ${NEWEST_AGE}h old with ${PENDING} files pending"
+fi
+
+# ── 5e. Pipeline manifest check (stalled/failed recordings) ────────────────
+MANIFEST_STATUS=$(ssh -o ConnectTimeout=10 "$UBUNTU" "python3 ~/manifest.py summary 2>/dev/null" 2>/dev/null)
+if [ -n "$MANIFEST_STATUS" ]; then
+    log "Manifest: $MANIFEST_STATUS"
+    MANIFEST_FAILED=$(echo "$MANIFEST_STATUS" | grep -o 'failed=[0-9]*' | cut -d= -f2)
+    MANIFEST_STALLED=$(echo "$MANIFEST_STATUS" | grep -o 'stalled=[0-9]*' | cut -d= -f2)
+    [ "${MANIFEST_FAILED:-0}" -gt 0 ] && alert "Pipeline failures" "${MANIFEST_FAILED} recordings have failed stages"
+    [ "${MANIFEST_STALLED:-0}" -gt 0 ] && alert "Pipeline stalled" "${MANIFEST_STALLED} recordings stuck in processing"
+fi
+
+# ── 6. CSV rows vs KB meeting files — catch-up if KB is behind ──────────────
+CSV_PATH="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes Analysis/classification.csv"
+if [ -f "$CSV_PATH" ]; then
+    CSV_ROWS=$(wc -l < "$CSV_PATH" | tr -d ' ')
+    KB_MEETINGS=$(ls /Users/eoin/knowledge_base/meetings/*.md 2>/dev/null | wc -l | tr -d ' ')
+    # Count content rows (exclude blank/personal categories that don't generate KB files)
+    CSV_CONTENT=$(grep -v 'other:blank' "$CSV_PATH" 2>/dev/null | wc -l | tr -d ' ')
+
+    log "CSV rows: ${CSV_ROWS}, KB meetings: ${KB_MEETINGS}"
+
+    # Check if new CSV entries exist that aren't in the KB yet
+    # Get the newest CSV date and newest KB meeting date
+    NEWEST_CSV_DATE=$(tail -1 "$CSV_PATH" | cut -d',' -f2 | cut -d' ' -f1)
+    NEWEST_KB=$(ls -1 /Users/eoin/knowledge_base/meetings/*.md 2>/dev/null | sort | tail -1 | xargs basename 2>/dev/null | cut -d'_' -f1)
+
+    if [ -n "$NEWEST_CSV_DATE" ] && [ -n "$NEWEST_KB" ] && [ "$NEWEST_CSV_DATE" \> "$NEWEST_KB" ]; then
+        # CSV has entries newer than the most recent KB file — KB is behind
+        SYNC_LOCK="/tmp/sync-knowledge-base.lock"
+        REBUILD_LOCK="/tmp/rebuild-knowledge-base.lock"
+        if [ ! -f "$SYNC_LOCK" ] && [ ! -f "$REBUILD_LOCK" ]; then
+            alert "KB catch-up" "CSV has entries from ${NEWEST_CSV_DATE} but KB only up to ${NEWEST_KB} — triggering rebuild"
+            log "Triggering catch-up rebuild..."
+            # Run sync script in background (it handles its own locking)
+            nohup /bin/bash /Users/eoin/.local/bin/sync-knowledge-base.sh >> "$LOG" 2>&1 &
+        else
+            log "KB behind but sync/rebuild already running — skipping catch-up"
+        fi
+    fi
 fi
 
 log "--- Health check done (pending=${PENDING}, newest=${NEWEST_AGE}h, skips=${RECENT_SKIPS}/${RECENT_RUNS}) ---"

@@ -30,14 +30,19 @@ while read FNAME; do
 
     UUID="${FNAME%.m4a}"
     OUT_PATH="$OUT_DIR/$UUID.txt"
+    MANIFEST="python3 /home/eoin/manifest.py"
 
     if [ -f "$OUT_PATH" ]; then
         echo "$(date): Already transcribed — $FNAME" >> "$LOG"
         continue
     fi
 
+    # Record arrival in manifest
+    $MANIFEST arrive "$UUID" "$AUDIO_DIR/$FNAME" "inotify" 2>/dev/null
+
     # --- TRANSCRIBE ---
     echo "$(date): Transcribing $FNAME..." >> "$LOG"
+    $MANIFEST start "$UUID" transcribe 2>/dev/null
     source "$VENV/bin/activate"
     python3 /home/eoin/transcribe_single.py "$AUDIO_DIR/$FNAME" "$OUT_PATH" >> "$LOG" 2>&1
     TRANS_STATUS=$?
@@ -45,9 +50,11 @@ while read FNAME; do
 
     if [ $TRANS_STATUS -ne 0 ]; then
         echo "$(date): Transcription FAILED (exit $TRANS_STATUS) — $FNAME" >> "$LOG"
+        $MANIFEST fail "$UUID" transcribe "exit code $TRANS_STATUS" 2>/dev/null
         continue
     fi
     echo "$(date): Transcribed OK — $UUID.txt" >> "$LOG"
+    $MANIFEST complete "$UUID" transcribe "$OUT_PATH" 2>/dev/null
 
     # Sync transcript to Mac
     rsync -az -e "ssh -o StrictHostKeyChecking=no" \
@@ -60,6 +67,7 @@ while read FNAME; do
 
     # --- CLASSIFY ---
     echo "$(date): Classifying $UUID..." >> "$LOG"
+    $MANIFEST start "$UUID" classify 2>/dev/null
     source "$VENV/bin/activate"
     python3 /home/eoin/classify_transcript.py "$OUT_PATH" "$CSV_PATH" >> "$LOG" 2>&1
     CLASS_STATUS=$?
@@ -68,9 +76,11 @@ while read FNAME; do
 
     if [ $CLASS_STATUS -ne 0 ]; then
         echo "$(date): Classification FAILED (exit $CLASS_STATUS) — $UUID" >> "$LOG"
+        $MANIFEST fail "$UUID" classify "exit code $CLASS_STATUS" 2>/dev/null
         continue
     fi
     echo "$(date): Classified OK — $UUID" >> "$LOG"
+    $MANIFEST complete "$UUID" classify "$CSV_PATH" 2>/dev/null
 
     # Sync updated CSV to Mac
     rsync -az -e "ssh -o StrictHostKeyChecking=no" \
@@ -83,6 +93,7 @@ while read FNAME; do
 
     # --- IDENTIFY SPEAKERS ---
     echo "$(date): Identifying speakers for $UUID..." >> "$LOG"
+    $MANIFEST start "$UUID" speaker_id 2>/dev/null
     source "$VENV/bin/activate"
     python3 /home/eoin/identify_speakers.py "$OUT_PATH" "$CSV_PATH" >> "$LOG" 2>&1
     ID_STATUS=$?
@@ -91,8 +102,10 @@ while read FNAME; do
 
     if [ $ID_STATUS -ne 0 ]; then
         echo "$(date): Speaker ID FAILED (exit $ID_STATUS) — $UUID" >> "$LOG"
+        $MANIFEST fail "$UUID" speaker_id "exit code $ID_STATUS" 2>/dev/null
     else
         echo "$(date): Speaker ID OK — $UUID" >> "$LOG"
+        $MANIFEST complete "$UUID" speaker_id "$OUT_PATH" 2>/dev/null
         # Re-sync transcript with speaker names written in
         rsync -az -e "ssh -o StrictHostKeyChecking=no" \
             "$OUT_PATH" "$MAC_HOST:$MAC_NOTES_DIR/" >> "$LOG" 2>&1
@@ -101,5 +114,33 @@ while read FNAME; do
         else
             echo "$(date): Updated transcript sync FAILED — $UUID.txt" >> "$LOG"
         fi
+    fi
+
+    # --- RECLASSIFY BY SPEAKER ---
+    echo "$(date): Reclassifying $UUID by speaker..." >> "$LOG"
+    $MANIFEST start "$UUID" reclassify 2>/dev/null
+    source "$VENV/bin/activate"
+    python3 /home/eoin/reclassify_by_speaker.py "$OUT_PATH" "$CSV_PATH" >> "$LOG" 2>&1
+    deactivate
+    $MANIFEST complete "$UUID" reclassify 2>/dev/null
+
+    # Re-sync CSV (reclassify may have changed category)
+    rsync -az -e "ssh -o StrictHostKeyChecking=no" \
+        "$CSV_PATH" "$MAC_HOST:$MAC_ANALYSIS_DIR/classification.csv" >> "$LOG" 2>&1
+
+    # --- EXTRACT INSIGHTS ---
+    echo "$(date): Extracting insights for $UUID..." >> "$LOG"
+    $MANIFEST start "$UUID" insights 2>/dev/null
+    source "$VENV/bin/activate"
+    python3 /home/eoin/extract_meeting_insights.py "$OUT_PATH" "$CSV_PATH" >> "$LOG" 2>&1
+    INS_STATUS=$?
+    deactivate
+
+    if [ $INS_STATUS -ne 0 ]; then
+        echo "$(date): Insights FAILED (exit $INS_STATUS) — $UUID" >> "$LOG"
+        $MANIFEST fail "$UUID" insights "exit code $INS_STATUS" 2>/dev/null
+    else
+        echo "$(date): Insights OK — $UUID" >> "$LOG"
+        $MANIFEST complete "$UUID" insights "/home/eoin/audio-inbox/Insights/${UUID}.json" 2>/dev/null
     fi
 done

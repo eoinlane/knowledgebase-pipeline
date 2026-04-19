@@ -17,7 +17,8 @@ COMPUTE_TYPE = "float16"
 audio_file = sys.argv[1]
 out_path = sys.argv[2]
 
-uuid = os.path.basename(audio_file).replace(".m4a", "")
+_basename = os.path.basename(audio_file)
+uuid = _basename.rsplit(".", 1)[0] if "." in _basename else _basename
 ts_file = "/home/eoin/uuid_timestamps.json"
 ts_map = {}
 if os.path.exists(ts_file):
@@ -64,7 +65,7 @@ diarize_segments = diarize_model(audio)
 result = assign_word_speakers(diarize_segments, result)
 
 with open(out_path, "w") as f:
-    f.write(f"File: {uuid}.m4a\n")
+    f.write(f"File: {uuid}\n")
     f.write(f"Recorded: {recorded_at}\n")
     f.write("-" * 60 + "\n\n")
     for seg in result["segments"]:

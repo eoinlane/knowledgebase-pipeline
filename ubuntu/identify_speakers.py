@@ -215,7 +215,7 @@ if __name__ == "__main__":
     for line in content.splitlines()[:3]:
         if line.startswith("File:"):
             uuid = line.replace("File:", "").strip()
-            uuid = re.sub(r'\.(m4a|txt)$', '', uuid)
+            uuid = re.sub(r'\.(m4a|mp3|txt)+$', '', uuid)
 
     if not uuid:
         print("  Could not extract UUID from transcript header — skipping", file=sys.stderr)

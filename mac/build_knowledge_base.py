@@ -385,8 +385,10 @@ skipped = 0
 all_note_metadata = []  # for index file
 
 for note in notes:
-    filename_base = note["filename"].replace(".txt", "")
-    transcript_name = note["filename"] if note["filename"].endswith(".txt") else note["filename"] + ".txt"
+    # Strip any audio/text extension to get the bare stem
+    _fn = note["filename"]
+    filename_base = re.sub(r'\.(txt|m4a|mp3)$', '', _fn)
+    transcript_name = filename_base + ".txt"
     transcript_path = os.path.join(NOTES_DIR, transcript_name)
 
     # Load transcript
@@ -402,6 +404,21 @@ for note in notes:
     if rec_match:
         try:
             recording_dt = datetime.strptime(rec_match.group(1), "%Y-%m-%d %H:%M:%S")
+        except:
+            pass
+
+    # For Plaud recordings: filename IS the recording timestamp (YYYY-MM-DD_HH_MM_SS)
+    # Override the transcript header (which may reflect transcription time, not recording time)
+    plaud_match = re.match(r"(\d{4}-\d{2}-\d{2})_(\d{2})_(\d{2})_(\d{2})", filename_base)
+    if plaud_match:
+        try:
+            plaud_dt = datetime.strptime(
+                f"{plaud_match.group(1)} {plaud_match.group(2)}:{plaud_match.group(3)}:{plaud_match.group(4)}",
+                "%Y-%m-%d %H:%M:%S"
+            )
+            recording_dt = plaud_dt
+            # Also override CSV date with the Plaud filename date
+            note["_date"] = plaud_dt.date()
         except:
             pass
 

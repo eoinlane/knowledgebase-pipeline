@@ -14,6 +14,7 @@ import urllib.request
 PIPELINE_DIR = os.environ.get("PIPELINE_DIR", os.path.expanduser("~/knowledgebase-pipeline"))
 if os.path.isdir(PIPELINE_DIR) and PIPELINE_DIR not in sys.path:
     sys.path.insert(0, PIPELINE_DIR)
+from shared.atomic_io import atomic_write_json
 try:
     from shared.config import OLLAMA_URL, MODEL
 except ImportError:
@@ -178,7 +179,7 @@ def process_transcript(txt_path, csv_path, force=False):
     for line in content.splitlines()[:3]:
         if line.startswith("File:"):
             uuid = line.replace("File:", "").strip()
-            uuid = re.sub(r'\.(m4a|txt)$', '', uuid)
+            uuid = re.sub(r'\.(m4a|mp3|txt)+$', '', uuid)
 
     if not uuid:
         print(f"  No UUID found in {txt_path}", file=sys.stderr)
@@ -186,10 +187,14 @@ def process_transcript(txt_path, csv_path, force=False):
 
     insights_file = os.path.join(INSIGHTS_DIR, uuid + ".json")
 
-    # Skip if already extracted (unless force)
+    # Skip if already extracted (unless force). Reject 0-byte files from failed writes.
     if os.path.exists(insights_file) and not force:
-        print(f"  Already extracted: {uuid}")
-        return True
+        if os.path.getsize(insights_file) > 0:
+            print(f"  Already extracted: {uuid}")
+            return True
+        else:
+            os.unlink(insights_file)
+            print(f"  Removed 0-byte insights file: {uuid}")
 
     # Get category, topic, and key_people from CSV
     category = ""
@@ -213,9 +218,8 @@ def process_transcript(txt_path, csv_path, force=False):
     lines = [l for l in content.splitlines() if l.strip() and not l.startswith(("File:", "Recorded:", "---"))]
     if len(lines) < 5:
         print(f"  Skipping {uuid} — too short ({len(lines)} lines)")
-        # Save empty insights so we don't retry
-        with open(insights_file, "w") as f:
-            json.dump({"skipped": True, "reason": "too_short"}, f)
+        # Save skipped marker so we don't retry
+        atomic_write_json(insights_file, {"skipped": True, "reason": "too_short"})
         return True
 
     print(f"  Extracting: {uuid} ({len(lines)} lines, {category})...")
@@ -247,8 +251,7 @@ def process_transcript(txt_path, csv_path, force=False):
     elapsed = time.time() - t0
     print(f"  OK ({elapsed:.1f}s) — {n_actions} actions, {n_decisions} decisions, {n_followups} follow-ups, {n_topics} topics")
 
-    with open(insights_file, "w") as f:
-        json.dump(insights, f, indent=2)
+    atomic_write_json(insights_file, insights)
 
     return True
 

@@ -69,7 +69,7 @@ def fuzzy_owner_match(owner, search_name):
 def cmd_open(args):
     conn = get_conn(GRAPH_DB)
 
-    query = "SELECT id, meeting_filename, text, owner FROM action_items WHERE status = 'open'"
+    query = "SELECT id, meeting_filename, text, owner, project FROM action_items WHERE status = 'open'"
     params = []
 
     if args.person:
@@ -80,10 +80,10 @@ def cmd_open(args):
 
     rows = conn.execute(query, params).fetchall()
 
-    # Filter by project if needed (derived from meeting filename)
+    # Filter by project — use project column if available, fall back to meeting filename
     if args.project:
         proj = args.project.upper()
-        rows = [r for r in rows if meeting_category(r["meeting_filename"]).upper() == proj]
+        rows = [r for r in rows if (r["project"] or meeting_category(r["meeting_filename"])).upper() == proj]
 
     if not rows:
         print("No open action items found.")
@@ -118,14 +118,14 @@ def cmd_open(args):
 def cmd_decisions(args):
     conn = get_conn(GRAPH_DB)
 
-    query = "SELECT meeting_filename, text FROM decisions"
+    query = "SELECT meeting_filename, text, project FROM decisions"
     params = []
 
     rows = conn.execute(query, params).fetchall()
 
     if args.project:
         proj = args.project.upper()
-        rows = [r for r in rows if meeting_category(r["meeting_filename"]).upper() == proj]
+        rows = [r for r in rows if (r["project"] or meeting_category(r["meeting_filename"])).upper() == proj]
 
     if not rows:
         print("No decisions found.")
@@ -212,10 +212,10 @@ def cmd_stats(args):
     ).fetchall()
 
     # Top projects by action items
-    all_actions = conn.execute("SELECT meeting_filename FROM action_items WHERE status = 'open'").fetchall()
+    all_actions = conn.execute("SELECT meeting_filename, project FROM action_items WHERE status = 'open'").fetchall()
     by_proj = {}
     for r in all_actions:
-        cat = meeting_category(r["meeting_filename"])
+        cat = r["project"] or meeting_category(r["meeting_filename"])
         by_proj[cat] = by_proj.get(cat, 0) + 1
 
     print("## Graph Stats\n")
@@ -327,13 +327,13 @@ def cmd_prep(args):
 
     # --- Their open action items ---
     their_items = conn.execute("""
-        SELECT id, meeting_filename, text, owner FROM action_items
+        SELECT id, meeting_filename, text, owner, project FROM action_items
         WHERE status = 'open'
           AND (LOWER(owner) LIKE ? OR LOWER(owner) LIKE ?)
     """, (f"%{args.name.lower()}%", f"%{name_slug}%")).fetchall()
 
     if project:
-        their_items = [r for r in their_items if meeting_category(r["meeting_filename"]).upper() == project.upper()]
+        their_items = [r for r in their_items if (r["project"] or meeting_category(r["meeting_filename"])).upper() == project.upper()]
 
     if their_items:
         print(f"## Their Open Action Items ({len(their_items)})")
@@ -347,13 +347,13 @@ def cmd_prep(args):
 
     # --- Your open action items for this project ---
     your_items = conn.execute("""
-        SELECT id, meeting_filename, text FROM action_items
+        SELECT id, meeting_filename, text, project FROM action_items
         WHERE status = 'open'
           AND LOWER(owner) LIKE '%eoin%'
     """).fetchall()
 
     if project:
-        your_items = [r for r in your_items if meeting_category(r["meeting_filename"]).upper() == project.upper()]
+        your_items = [r for r in your_items if (r["project"] or meeting_category(r["meeting_filename"])).upper() == project.upper()]
 
     # Further filter to items from meetings where this person was present
     if meeting_filenames:
@@ -373,8 +373,8 @@ def cmd_prep(args):
 
     # --- Recent decisions for this project ---
     if project:
-        decisions = conn.execute("SELECT meeting_filename, text FROM decisions").fetchall()
-        decisions = [d for d in decisions if meeting_category(d["meeting_filename"]).upper() == project.upper()]
+        decisions = conn.execute("SELECT meeting_filename, text, project FROM decisions").fetchall()
+        decisions = [d for d in decisions if (d["project"] or meeting_category(d["meeting_filename"])).upper() == project.upper()]
         decisions = sorted(decisions, key=lambda d: d["meeting_filename"], reverse=True)[:10]
 
         if decisions:
@@ -602,17 +602,17 @@ def cmd_synthesise(args):
         """, (f"%{args.name.lower()}%", f"%{entity_id}%")).fetchall()
     else:
         all_actions = conn.execute("""
-            SELECT meeting_filename, text, owner, status FROM action_items
+            SELECT meeting_filename, text, owner, status, project FROM action_items
             WHERE status = 'open' ORDER BY meeting_filename DESC
         """).fetchall()
-        actions = [a for a in all_actions if meeting_category(a["meeting_filename"]).upper() == entity_id][:20]
+        actions = [a for a in all_actions if (a["project"] or meeting_category(a["meeting_filename"])).upper() == entity_id][:20]
 
     # Decisions
-    all_decisions = conn.execute("SELECT meeting_filename, text FROM decisions ORDER BY meeting_filename DESC").fetchall()
+    all_decisions = conn.execute("SELECT meeting_filename, text, project FROM decisions ORDER BY meeting_filename DESC").fetchall()
     if entity_type == "person":
         decisions = [d for d in all_decisions if d["meeting_filename"] in meeting_fns][:15]
     else:
-        decisions = [d for d in all_decisions if meeting_category(d["meeting_filename"]).upper() == entity_id][:15]
+        decisions = [d for d in all_decisions if (d["project"] or meeting_category(d["meeting_filename"])).upper() == entity_id][:15]
 
     # Documents
     if entity_type == "person":

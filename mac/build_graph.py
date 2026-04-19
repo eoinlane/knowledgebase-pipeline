@@ -93,6 +93,7 @@ def init_db(conn):
             id               INTEGER PRIMARY KEY,
             meeting_filename TEXT,
             text             TEXT,
+            project          TEXT,
             status           TEXT DEFAULT 'open',
             created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -102,6 +103,7 @@ def init_db(conn):
             meeting_filename TEXT,
             text             TEXT,
             owner            TEXT,
+            project          TEXT,
             status           TEXT DEFAULT 'open',
             due_date         TEXT,
             created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -132,7 +134,9 @@ def init_db(conn):
         CREATE INDEX IF NOT EXISTS idx_ai_status  ON action_items(status);
         CREATE INDEX IF NOT EXISTS idx_ai_owner   ON action_items(owner);
         CREATE INDEX IF NOT EXISTS idx_ai_meeting ON action_items(meeting_filename);
+        CREATE INDEX IF NOT EXISTS idx_ai_project ON action_items(project);
         CREATE INDEX IF NOT EXISTS idx_dec_meeting ON decisions(meeting_filename);
+        CREATE INDEX IF NOT EXISTS idx_dec_project ON decisions(project);
 
         CREATE TABLE IF NOT EXISTS syntheses (
             id          INTEGER PRIMARY KEY,
@@ -197,6 +201,7 @@ def _ensure_pipeline_path():
 
 _ensure_pipeline_path()
 from shared.entity_resolver import build_resolver, resolve_slug as resolve_person_slug
+from shared.project_tagger import build_owner_project_tagger
 
 
 def build_graph():
@@ -254,8 +259,12 @@ def build_graph():
         except Exception:
             pass  # No syntheses to carry forward
 
+    # Build owner→project tagger
+    project_tagger = build_owner_project_tagger()
+    print(f"  Built project tagger with {len(project_tagger)} owner mappings")
+
     stats = {"meetings": 0, "actions": 0, "decisions": 0, "edges": 0, "matched": 0,
-             "insights_people": 0, "transcript_people": 0}
+             "insights_people": 0, "transcript_people": 0, "project_retagged": 0}
 
     for md_path in md_files:
         fm, body = parse_frontmatter_and_body(md_path)
@@ -335,9 +344,16 @@ def build_graph():
                 if not text:
                     continue
 
+                # Determine project: owner's category if known, else meeting category
+                project = project_tagger.get(owner.lower(), "") if owner else ""
+                if not project:
+                    project = category
+                if project != category:
+                    stats["project_retagged"] += 1
+
                 cur = conn.execute(
-                    "INSERT INTO action_items (meeting_filename, text, owner) VALUES (?, ?, ?)",
-                    (meeting_filename, text, owner or None)
+                    "INSERT INTO action_items (meeting_filename, text, owner, project) VALUES (?, ?, ?, ?)",
+                    (meeting_filename, text, owner or None, project or None)
                 )
                 ai_id = cur.lastrowid
                 stats["actions"] += 1
@@ -353,13 +369,13 @@ def build_graph():
                         add_edge(conn, "action_item", str(ai_id), "ASSIGNED_TO", "person", owner_slug)
                         stats["edges"] += 1
 
-            # Store decisions
+            # Store decisions (inherit project from meeting category)
             for dec_text in insights.get("decisions", []):
                 if not dec_text:
                     continue
                 cur = conn.execute(
-                    "INSERT INTO decisions (meeting_filename, text) VALUES (?, ?)",
-                    (meeting_filename, dec_text)
+                    "INSERT INTO decisions (meeting_filename, text, project) VALUES (?, ?, ?)",
+                    (meeting_filename, dec_text, category or None)
                 )
                 dec_id = cur.lastrowid
                 stats["decisions"] += 1
@@ -503,6 +519,7 @@ def build_graph():
     print(f"  {stats['edges']} graph edges")
     print(f"  {docs_count} documents indexed")
     print(f"  People enrichment: {stats['insights_people']} from insights, {stats['transcript_people']} from transcript scan")
+    print(f"  Project tagging: {stats['project_retagged']} action items retagged by owner")
 
 
 if __name__ == "__main__":

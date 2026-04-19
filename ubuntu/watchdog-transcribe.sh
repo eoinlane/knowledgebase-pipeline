@@ -153,6 +153,10 @@ python3 /home/eoin/reclassify_by_speaker.py "$txt" "$CSV_PATH" >> "$LOG" 2>&1
 deactivate
 
 # ── Step 7: Extract insights ────────────────────────────────────────────────
+# Clean up 0-byte insight files from prior disk-full failures
+ZERO_CLEANED=$(find /home/eoin/audio-inbox/Insights -name "*.json" -empty -delete -print 2>/dev/null | wc -l)
+[ "$ZERO_CLEANED" -gt 0 ] && log "Cleaned $ZERO_CLEANED empty insight files"
+
 log "Extracting insights for $stem..."
 ollama_ensure_responsive || { log "Skipping insights — Ollama unresponsive"; }
 source "$VENV/bin/activate"
@@ -165,5 +169,11 @@ if [ $STATUS -eq 0 ]; then
 else
     log "Insights FAILED — $stem"
 fi
+
+# ── Step 8: Nudge Mac to rebuild KB ─────────────────────────────────────────
+log "Nudging Mac to rebuild KB..."
+ssh -o ConnectTimeout=10 -o BatchMode=yes "$MAC_HOST" \
+    "nohup /bin/bash ~/.local/bin/sync-knowledge-base.sh > /dev/null 2>&1 &" >> "$LOG" 2>&1 || \
+    log "Mac nudge failed (Mac unreachable)"
 
 log "--- Watchdog done ---"
