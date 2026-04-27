@@ -28,6 +28,8 @@ CATEGORY_NAME_EXPANSIONS = {
         "cathal": "Cathal Bellew",
         "cahal": "Cathal Bellew",
         "cathal murphy": "Cathal Bellew",
+        "karl bellews": "Cathal Bellew",  # WhisperX mishears the Irish "Cathal" as "Karl" + adds an 's' to "Bellew"
+        "karl bellew": "Cathal Bellew",
         "declan": "Declan Sheehan",
         "neil": "Neil",
         "mark": "Mark O'Brien Moody",
