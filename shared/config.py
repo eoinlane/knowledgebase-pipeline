@@ -62,6 +62,10 @@ PERSON_CATEGORY = {
     "Daniel Coughlan": "TBS",
     "Neil Dunne": "TBS",
     "Sinead Monaghan": "TBS",
+
+    # LCC (Limerick County Council) — local-government client, parallel to DCC.
+    # Tag with "lgma" in meeting frontmatter for the broader umbrella.
+    "Alan Dooley": "LCC",
 }
 
 # Categories that shouldn't be overridden by speaker-based reclassification
