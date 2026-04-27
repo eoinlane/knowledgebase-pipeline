@@ -120,6 +120,7 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
 |---|---|---|
 | `com.eoin.rebuild-knowledge-base` | `rebuild-knowledge-base.sh` | Daily 4am |
 | `com.eoin.sync-knowledge-base` | `sync-knowledge-base.sh` | WatchPaths: CSV change |
+| `com.eoin.sync-inbox-audio` | `sync-inbox-audio.sh` | WatchPaths: `~/inbox/` — uploads `.mp3` / `.m4a` to Ubuntu's audio inbox, then files locals into `~/inbox/done/` |
 | `com.eoin.test-pipeline` | `test-pipeline.sh` | Daily 6am |
 
 ## Knowledge Base
