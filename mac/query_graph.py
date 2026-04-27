@@ -759,6 +759,9 @@ def cmd_review(args):
     today = _dt.date.today()
     # Default to current week (Mon-Sun), or use --weeks to look back further
     weeks_back = args.weeks or 1
+    full = getattr(args, "full", False)
+    def _t(s, n):
+        return s if full else s[:n]
     week_start = today - _dt.timedelta(days=today.weekday(), weeks=weeks_back - 1)
     week_end = today + _dt.timedelta(days=1)
     start_str = week_start.isoformat()
@@ -816,7 +819,7 @@ def cmd_review(args):
         for r in your_items:
             date = meeting_date(r["meeting_filename"])
             cat = meeting_category(r["meeting_filename"])
-            print(f"  - [ ] {r['text'][:90]} ({date}, {cat})")
+            print(f"  - [ ] {_t(r['text'], 90)} ({date}, {cat})")
         print()
 
     # --- 3. Others' new action items this period ---
@@ -841,7 +844,7 @@ def cmd_review(args):
             print(f"  **{owner}** ({len(items)})")
             for r in items:
                 date = meeting_date(r["meeting_filename"])
-                print(f"    - [ ] {r['text'][:90]} ({date})")
+                print(f"    - [ ] {_t(r['text'], 90)} ({date})")
         print()
 
     # --- 4. Decisions made this period ---
@@ -857,7 +860,7 @@ def cmd_review(args):
         for d in decisions[:20]:
             date = meeting_date(d["meeting_filename"])
             cat = meeting_category(d["meeting_filename"])
-            print(f"  - {d['text'][:100]} ({date}, {cat})")
+            print(f"  - {_t(d['text'], 100)} ({date}, {cat})")
         if len(decisions) > 20:
             print(f"  ... and {len(decisions) - 20} more")
         print()
@@ -879,7 +882,7 @@ def cmd_review(args):
             date = meeting_date(r["meeting_filename"])
             cat = meeting_category(r["meeting_filename"])
             age_days = (today - _dt.date.fromisoformat(date)).days
-            print(f"  - [ ] {r['text'][:80]} ({date}, {cat}, {age_days}d ago, #{r['id']})")
+            print(f"  - [ ] {_t(r['text'], 80)} ({date}, {cat}, {age_days}d ago, #{r['id']})")
         if len(overdue) > 15:
             print(f"  ... and {len(overdue) - 15} more")
         print()
@@ -944,6 +947,7 @@ def main():
 
     p_review = sub.add_parser("review", help="Weekly review digest")
     p_review.add_argument("--weeks", "-w", type=int, default=1, help="How many weeks back (default: current week)")
+    p_review.add_argument("--full", action="store_true", help="Don't truncate action item / decision text (useful for markdown digests)")
 
     p_stats = sub.add_parser("stats", help="Graph stats overview")
 

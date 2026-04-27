@@ -26,7 +26,7 @@ echo "$(date): Generating weekly review for $WEEK..." >> "$LOG"
     # --weeks 2 because this fires Monday morning: weeks_back=2 covers
     # the week that just ended (Mon..Sun) plus today, which is the useful
     # frame for a Monday review. With --weeks 1 the range is just today.
-    /usr/local/bin/python3 "$QUERY_GRAPH" review --weeks 2
+    /usr/local/bin/python3 "$QUERY_GRAPH" review --weeks 2 --full
 } > "$OUT" 2>>"$LOG"
 
 if [ ${PIPESTATUS[0]:-0} -eq 0 ] && [ -s "$OUT" ]; then
