@@ -35,6 +35,13 @@ fi
 # Step 2b: Build contacts DB + graph
 echo "$(date): Building contacts DB..." >> "$LOG"
 /usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/build_contacts_db.py >> "$LOG" 2>&1
+
+# Step 2c: LLM judgment on new merge_suggestions (cap 50/night so a fresh
+# backlog clears in ~2 weeks; safe to skip if LiteLLM is unreachable).
+echo "$(date): Running entity_resolver_agent (limit 50)..." >> "$LOG"
+/usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/entity_resolver_agent.py --limit 50 >> "$LOG" 2>&1 || \
+    echo "$(date): entity_resolver_agent skipped/failed (continuing)" >> "$LOG"
+
 echo "$(date): Building graph..." >> "$LOG"
 /usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/build_graph.py >> "$LOG" 2>&1
 

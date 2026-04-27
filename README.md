@@ -30,7 +30,7 @@ python3 ~/query_graph.py history "Jamie Cudden"        # meeting history
 ```
 
 - **5,348 action items** (3,031 open), **4,517 decisions**, **1,357 people across 841 meetings** (counts from 2026-04-27 rebuild)
-- Entity resolution merges WhisperX mishearings, first-name-only → full names
+- Entity resolution merges WhisperX mishearings, first-name-only → full names; an LLM judgment layer (`entity_resolver_agent.py`) annotates each candidate pair with a `merge`/`distinct`/`ambiguous` verdict via Claude Haiku, surfaced on the contacts viewer's `/review` page
 - Auto-ages stale items (8 weeks), manual closures persist across rebuilds
 - Progressive summarisation via Claude Haiku — trajectory narratives that build on prior syntheses
 - Weekly review: meetings, commitments, decisions, overdue items, people gone quiet

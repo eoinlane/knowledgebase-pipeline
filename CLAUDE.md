@@ -157,6 +157,8 @@ dismissed_pairs (name1, name2)
 
 `entity_resolution.py` detects duplicate people entries. Detection rules (in priority order): exact first-name match against multi-word name (`first_name_only`), word-boundary prefix containment (`name_contained`), Levenshtein distance ≤ 2 on similar-length names (`edit_distance_N`), SequenceMatcher ≥ 0.75 for single-word names (`similar_Npct`). Pairs that ever co-occur in the same meeting are excluded. Score boosted by same org (+0.12), penalised by different known orgs (−0.20).
 
+**LLM judgment layer** (`entity_resolver_agent.py`, added 2026-04-27): for each pending suggestion, gathers context (orgs, meeting counts, top categories, recent meetings, co-attendees) and asks Claude Haiku via the LiteLLM proxy at `http://100.121.184.27:4000` whether the two names refer to the same person. Persists `llm_verdict` (`merge` / `distinct` / `ambiguous`), `llm_confidence`, `llm_reason` on the row. Does NOT auto-merge — `contacts_viewer` `/review` renders the verdict alongside the heuristic so the human stays in the loop. Wired into the nightly rebuild after `build_contacts_db.py` with `--limit 50` so backlog drains gradually; safe to skip if LiteLLM is unreachable.
+
 ### Inbox Processing
 
 `process_inbox.py` watches `~/inbox/` (via launchd WatchPaths). Supported: `.pdf`, `.docx`, `.pptx`, `.eml`, `.txt`, `.md`, images. Classification via LiteLLM proxy at `http://100.121.184.27:4000` using `claude-haiku-4-5`. Outputs to `~/knowledge_base/documents/`. Emails (`.eml`) extract body + embedded attachments into a single KB doc with `type: email` frontmatter.

@@ -458,6 +458,12 @@ REVIEW_HTML = f"""
                border-radius:10px; }}
 .merge-select {{ font-size:12px; border:1px solid #ccc; border-radius:6px;
                 padding:4px 8px; background:#fff; }}
+.llm-verdict {{ font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; }}
+.verdict-merge     {{ background:#dcfce7; color:#166534; }}
+.verdict-distinct  {{ background:#fee2e2; color:#991b1b; }}
+.verdict-ambiguous {{ background:#fef3c7; color:#92400e; }}
+.llm-reason {{ font-size:12px; color:#444; margin-top:8px; padding:8px 12px;
+               background:#f8f8fa; border-left:3px solid #cbd5e1; border-radius:4px; }}
 .empty {{ text-align:center; padding:60px; color:#888; }}
 .nav-tabs {{ display:flex; gap:0; border-bottom:2px solid #e0e0e0; margin-bottom:20px; }}
 .nav-tab  {{ padding:8px 18px; font-size:13px; font-weight:500; color:#666;
@@ -485,7 +491,15 @@ REVIEW_HTML = f"""
         {{{{ "%.0f%%" % (s.confidence * 100) }}}} confidence
       </span>
       <span class="reason-pill">{{{{ reason_label(s.reason) }}}}</span>
+      {{%- if s.llm_verdict %}}
+      <span class="llm-verdict verdict-{{{{ s.llm_verdict }}}}">
+        Haiku: {{{{ s.llm_verdict }}}} {{{{ "%.0f%%" % (s.llm_confidence * 100) if s.llm_confidence else "" }}}}
+      </span>
+      {{%- endif %}}
     </div>
+    {{%- if s.llm_reason %}}
+    <div class="llm-reason">{{{{ s.llm_reason }}}}</div>
+    {{%- endif %}}
     <div class="person-card">
       <div class="person-box">
         <h3><a href="/person/{{{{ s.canonical_name }}}}">{{{{ s.canonical_name }}}}</a></h3>
@@ -979,7 +993,15 @@ def review():
         rows = conn.execute("""
             SELECT * FROM merge_suggestions
             WHERE status = 'pending'
-            ORDER BY confidence DESC
+            ORDER BY
+                CASE llm_verdict
+                    WHEN 'merge'     THEN 0
+                    WHEN 'ambiguous' THEN 1
+                    WHEN 'distinct'  THEN 3
+                    ELSE 2
+                END,
+                COALESCE(llm_confidence, 0) DESC,
+                confidence DESC
         """).fetchall()
     except sqlite3.OperationalError:
         rows = []
