@@ -29,7 +29,7 @@ python3 ~/query_graph.py decisions --project NTA       # decisions by project
 python3 ~/query_graph.py history "Jamie Cudden"        # meeting history
 ```
 
-- **4,275 action items** (83% with clean owner names), **3,591 decisions**, **451 people**
+- **5,348 action items** (3,031 open), **4,517 decisions**, **1,357 people across 841 meetings** (counts from 2026-04-27 rebuild)
 - Entity resolution merges WhisperX mishearings, first-name-only → full names
 - Auto-ages stale items (8 weeks), manual closures persist across rebuilds
 - Progressive summarisation via Claude Haiku — trajectory narratives that build on prior syntheses
@@ -106,8 +106,7 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
 
 | Component | Location | Details |
 |---|---|---|
-| Ubuntu GPU box | `eoin@nvidiaubuntubox` (Tailscale: 100.121.184.27) | PNY RTX 5060 Ti 16GB, Ubuntu 24.04 |
-| Open WebUI | `http://100.121.184.27:8080` | Running in Docker |
+| Ubuntu GPU box | `eoin@nvidiaubuntubox` (Tailscale: 100.121.184.27) | PNY RTX 5060 Ti 16GB, Ubuntu 24.04. MagicDNS is off tailnet-wide; the Mac resolves the hostname via `~/.ssh/config` alias to the Tailscale IP |
 | LiteLLM proxy | Ubuntu port 4000 | Routes Claude API calls |
 | Ollama | ollama-box (192.168.0.70) | qwen2.5:14b (classification + speaker ID), Haiku fallback |
 | WhisperX | Ubuntu `~/whisper-env/` | large-v3, CUDA, float16, English |
@@ -129,15 +128,12 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
   - `meetings/` — one file per recording (date, category, summary, action items, calendar match, attendees, full transcript)
   - `people/` — one file per person (all meetings they appear in)
   - `topics/` — category index files (NTA, DCC, Diotima, Paradigm, ADAPT, TBS, etc.)
-- **Open WebUI collection**: "Eoin Lane — Meeting Notes & Knowledge Base"
-- **RAG settings**: CHUNK_SIZE 4000, CHUNK_OVERLAP 400, TOP_K 20
-- **Recommended query model**: `claude-sonnet-4-6` via LiteLLM proxy
 
 ## Query Interface
 
-Open WebUI upload has been replaced by **Claude Code + query_graph.py** for KB queries. The graph provides structured retrieval (people, projects, tags, action items, decisions) which is more reliable than Open WebUI's vector RAG for this use case.
+KB queries are handled by **Claude Code + `query_graph.py`**. The graph provides structured retrieval (people, projects, tags, action items, decisions) which is more reliable than vector RAG for this use case.
 
-Upload scripts (`upload_knowledge_base.py`, `upload_knowledge_base_incremental.py`) remain in the repo for manual use. Open WebUI is still running for general Claude/qwen chat.
+Open WebUI was retired from the pipeline on 2026-04-27 — the upload step has been removed from both `rebuild-knowledge-base.sh` and `sync-knowledge-base.sh`. Upload scripts (`upload_knowledge_base.py`, `upload_knowledge_base_incremental.py`) remain in the repo as legacy and are not invoked by any agent.
 
 ## iCloud Locking
 
