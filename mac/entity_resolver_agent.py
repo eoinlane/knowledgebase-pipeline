@@ -187,8 +187,16 @@ def main():
                    help="Print prompts and skip the LLM call")
     args = p.parse_args()
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    # busy_timeout pauses on transient locks instead of erroring out.
+    # WAL is preferred (concurrent reads while we write) but can't be set
+    # if another process is already holding the journal — best effort only.
+    conn.execute("PRAGMA busy_timeout=30000")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        pass  # already locked by another reader; rollback journal + busy_timeout still works
     ensure_schema(conn)
 
     where = "status = 'pending'"
