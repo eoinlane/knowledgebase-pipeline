@@ -9,16 +9,16 @@ LOG="/Users/eoin/.local/bin/rebuild-knowledge-base.log"
 UBUNTU="eoin@nvidiaubuntubox"
 echo "$(date): KB rebuild starting..." >> "$LOG"
 
-# Step 1: Export calendars (non-fatal — falls back to existing /tmp/ files)
+# Step 1: Export calendars (non-fatal — falls back to existing cached files)
+CAL_DIR="$HOME/.local/share/kb/calendars"
 echo "$(date): Exporting calendars..." >> "$LOG"
 /bin/bash /Users/eoin/.local/bin/export-calendars.sh >> "$LOG" 2>&1
 if [ $? -ne 0 ]; then
-    # Check if we have usable cal files from a previous run
-    if ls /tmp/cal_eoinlane.txt /tmp/cal_nta.txt > /dev/null 2>&1; then
-        cal_age=$(( ( $(date +%s) - $(date -r /tmp/cal_nta.txt +%s) ) / 3600 ))
-        echo "$(date): Calendar export failed — using existing /tmp/ files (${cal_age}h old)" >> "$LOG"
+    if ls "$CAL_DIR/cal_eoinlane.txt" "$CAL_DIR/cal_nta.txt" > /dev/null 2>&1; then
+        cal_age=$(( ( $(date +%s) - $(date -r "$CAL_DIR/cal_nta.txt" +%s) ) / 3600 ))
+        echo "$(date): Calendar export failed — using cached files (${cal_age}h old)" >> "$LOG"
     else
-        echo "$(date): Calendar export failed and no /tmp/ files available — continuing without calendar data" >> "$LOG"
+        echo "$(date): Calendar export failed and no cached files available — continuing without calendar data" >> "$LOG"
     fi
 fi
 

@@ -259,29 +259,36 @@ def slugify(text, max_len=60):
     return text[:max_len]
 
 # ── Load calendar events ─────────────────────────────────────────────────────
-print("Loading calendar data...")
+# Calendars live in ~/.local/share/kb/calendars/ (stable, survives reboot).
+# Used to live in /tmp/, which macOS clears on reboot — every time the Mac
+# rebooted between 4am and the next CSV-driven sync, the build silently lost
+# calendar data and produced meeting files without `attendees:`. Fixed by
+# moving to a non-volatile location 2026-04-27.
+import pathlib as _pl
+CAL_DIR = _pl.Path.home() / ".local" / "share" / "kb" / "calendars"
+print(f"Loading calendar data from {CAL_DIR}...")
 all_events = []
-for path in [
-    "/tmp/cal_eoinlane.txt",
-    "/tmp/cal_work.txt",
-    "/tmp/calendar_events.txt",
-    "/tmp/cal_extra_15.txt",
-    "/tmp/cal_nta.txt",
-    "/tmp/cal_adapt.txt",
-    "/tmp/cal_personal.txt",
-    "/tmp/cal_home.txt",
+for fname in [
+    "cal_eoinlane.txt",
+    "cal_work.txt",
+    "calendar_events.txt",
+    "cal_extra_15.txt",
+    "cal_nta.txt",
+    "cal_adapt.txt",
+    "cal_personal.txt",
+    "cal_home.txt",
 ]:
-    all_events += load_cal_file(path)
+    all_events += load_cal_file(str(CAL_DIR / fname))
 
 # Load |||‑delimited Apple Calendar exports (live AppleScript format)
-for path in [
-    "/tmp/cal_2025_1_January_2025.txt",
-    "/tmp/cal_2025_1_July_2025.txt",
-    "/tmp/cal_2025_events.txt",
-    "/tmp/cal_2026_events.txt",
-    "/tmp/cal_all_events.txt",
+for fname in [
+    "cal_2025_1_January_2025.txt",
+    "cal_2025_1_July_2025.txt",
+    "cal_2025_events.txt",
+    "cal_2026_events.txt",
+    "cal_all_events.txt",
 ]:
-    all_events += load_cal_pipe_file(path)
+    all_events += load_cal_pipe_file(str(CAL_DIR / fname))
 
 # Deduplicate
 seen_keys = set()
@@ -292,6 +299,14 @@ for e in all_events:
         seen_keys.add(key)
         unique_events.append(e)
 print(f"  {len(unique_events)} unique calendar events")
+if len(unique_events) == 0:
+    print(
+        f"\n  ⚠️  WARNING: 0 calendar events loaded from {CAL_DIR}.\n"
+        f"     Attendee matching will be DISABLED — every meeting built in this\n"
+        f"     run will have no `attendees:` frontmatter. Run\n"
+        f"     bash ~/.local/bin/export-calendars.sh to regenerate.\n",
+        flush=True,
+    )
 
 # ── Load notes CSV ────────────────────────────────────────────────────────────
 print("Loading notes CSV...")
