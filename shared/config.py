@@ -60,6 +60,8 @@ PERSON_CATEGORY = {
     # TBS
     "Kisito Futonge Nzembayie": "TBS",
     "Daniel Coughlan": "TBS",
+    "Neil Dunne": "TBS",
+    "Sinead Monaghan": "TBS",
 }
 
 # Categories that shouldn't be overridden by speaker-based reclassification

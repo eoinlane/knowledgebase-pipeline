@@ -8,6 +8,11 @@ CATEGORY_NAME_EXPANSIONS = {
     "DCC": {
         "chris": "Christopher Kelly",
         "christopher": "Christopher Kelly",
+        # WhisperX hears the Irish English "grand" (= "fine/good") as the proper
+        # noun "Grant" and labels it as a speaker. In DCC GenAI Lab context the
+        # speaker is Christopher Kelly (day-to-day DCC contact, hands-on with
+        # the team's indexed datasets).
+        "grant": "Christopher Kelly",
         "sean": "Shunyu Ji",
         "shawn": "Shunyu Ji",
         "ray": "Re Dubhthaigh",
@@ -62,6 +67,10 @@ CATEGORY_NAME_EXPANSIONS = {
         "kistu": "Kisito Futonge Nzembayie",
         "stu": "Kisito Futonge Nzembayie",
         "daniel": "Daniel Coughlan",
+        # WhisperX hears the Irish English "grand" (= "fine/good") as the proper
+        # noun "Grant" and assigns it as a speaker label. In TBS context that
+        # speaker is Neil Dunne — runs MSc Accounting & Analytics, BU7852.
+        "grant": "Neil Dunne",
     },
     "DFB": {
         "rob": "Rob Howell",
