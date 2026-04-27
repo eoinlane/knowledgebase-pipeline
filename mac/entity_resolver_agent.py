@@ -24,8 +24,10 @@ import datetime
 import json
 import os
 import re
+import socket
 import sqlite3
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -216,17 +218,25 @@ def main():
             print(user_prompt)
             continue
 
-        try:
-            content = call_haiku([
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ])
-            v = parse_verdict(content)
-            if not v:
-                raise ValueError(f"could not parse verdict from: {content[:200]!r}")
-        except (urllib.error.URLError, ValueError, TimeoutError) as e:
+        v = None
+        last_err = None
+        for attempt in (1, 2):
+            try:
+                content = call_haiku([
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ])
+                v = parse_verdict(content)
+                if not v:
+                    raise ValueError(f"could not parse verdict from: {content[:200]!r}")
+                break
+            except (OSError, urllib.error.URLError, ValueError, TimeoutError, socket.timeout) as e:
+                last_err = e
+                if attempt == 1:
+                    time.sleep(3)
+        if v is None:
             errors += 1
-            print(f"  #{s['id']} ERROR: {e}", file=sys.stderr)
+            print(f"  #{s['id']} ERROR after retry: {last_err}", file=sys.stderr)
             continue
 
         conn.execute(
