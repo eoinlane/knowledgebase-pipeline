@@ -1,7 +1,7 @@
 #!/bin/bash
 # Fast incremental KB sync — triggered by CSV changes via launchd WatchPaths.
-# Rebuilds KB markdown, rsyncs to Ubuntu, then incrementally uploads only
-# new/changed files to Open WebUI. Uses a lock file to prevent overlap.
+# Rebuilds KB markdown and rsyncs to Ubuntu. Uses a lock file to prevent overlap.
+# (Open WebUI upload step retired 2026-04-27; KB queries via Claude Code + query_graph.py.)
 
 LOG="/Users/eoin/.local/bin/sync-knowledge-base.log"
 LOCK="/tmp/sync-knowledge-base.lock"
@@ -41,14 +41,6 @@ rsync -az --delete \
     /Users/eoin/knowledge_base/ "$UBUNTU:/home/eoin/knowledge_base/" >> "$LOG" 2>&1
 if [ $? -ne 0 ]; then
     echo "$(date): rsync FAILED" >> "$LOG"
-    exit 1
-fi
-
-# ── Step 3: Incremental upload to Open WebUI ─────────────────────────────────
-echo "$(date): Incremental upload..." >> "$LOG"
-/usr/local/bin/python3 /Users/eoin/upload_knowledge_base_incremental.py >> "$LOG" 2>&1
-if [ $? -ne 0 ]; then
-    echo "$(date): Upload FAILED" >> "$LOG"
     exit 1
 fi
 
