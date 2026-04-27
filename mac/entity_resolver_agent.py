@@ -38,6 +38,16 @@ DB_PATH = str(Path.home() / "contacts.db")
 DEFAULT_LIMIT = 50
 TIMEOUT_SEC = 60
 
+# Authoritative employer map. Loaded from shared/config.py:PERSON_CATEGORY so
+# the agent prefers the static mapping over meeting-derived primary_org for
+# cross-project people (e.g. Declan McKibben works at ADAPT but appears most
+# often in DCC/NTA meetings — primary_org will say DCC, employer says ADAPT).
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+try:
+    from shared.config import PERSON_CATEGORY as _EMPLOYER_MAP
+except ImportError:
+    _EMPLOYER_MAP = {}
+
 SYSTEM_PROMPT = """You are deduplicating people in a personal professional contacts database. \
 Given two name variants and their meeting context, decide if they refer to the same person. \
 Reply with ONLY a JSON object — no prose, no code fences.
@@ -50,8 +60,10 @@ Decision guide:
 - "distinct": you are confident they are different people (e.g. same first name but different primary orgs, no co-meeting overlap, distinct topic profiles)
 - "ambiguous": evidence is mixed or thin — when in doubt, return ambiguous, not merge
 
-Strong merge signals: same primary org, overlapping co-attendees, overlapping recent meeting topics, one name is a strict prefix of the other.
-Strong distinct signals: different primary orgs with no overlap, different topical worlds, no shared co-attendees.
+Strong merge signals: same employer (or same most-frequent meeting category if no authoritative employer is shown), overlapping co-attendees, overlapping recent meeting topics, one name is a strict prefix of the other.
+Strong distinct signals: different employers shown for both names, no co-attendee overlap, contradicting topical worlds.
+
+Important: "Employer (authoritative)" is the actual employer from a curated map. "Most-frequent meeting category" is just where the person meets most often. They can differ — some people work at one client but attend many meetings of another. When an authoritative employer is shown, trust it over the meeting-derived category.
 """
 
 
@@ -150,10 +162,27 @@ def gather_context(conn, raw_name):
     }
 
 
+def _employer_for(name):
+    """Look up authoritative employer from shared/config.py:PERSON_CATEGORY.
+    Tries exact, then case-insensitive, then resolved long-form variants."""
+    if not name:
+        return None
+    if name in _EMPLOYER_MAP:
+        return _EMPLOYER_MAP[name]
+    key = name.lower()
+    for k, v in _EMPLOYER_MAP.items():
+        if k.lower() == key:
+            return v
+    return None
+
+
 def format_block(label, name, org, ctx):
     lines = [f"Person {label}: \"{name}\""]
+    employer = _employer_for(name)
+    if employer:
+        lines.append(f"  Employer (authoritative, from static map): {employer}")
     if org:
-        lines.append(f"  Primary org: {org}")
+        lines.append(f"  Most-frequent meeting category: {org}")
     lines.append(f"  Total meetings: {ctx['meetings']}")
     if ctx["categories"]:
         lines.append("  Top categories: " + ", ".join(f"{c} ({n})" for c, n in ctx["categories"]))
