@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-An automated pipeline that turns iPhone voice memos into a searchable knowledge base. Recordings flow from iPhone → Ubuntu GPU box (transcription + speaker ID) → Mac (KB build) → Open WebUI (RAG). Scripts in this repo run on **both Mac and Ubuntu** — the split matters.
+An automated pipeline that turns iPhone voice memos into a searchable knowledge base. Recordings flow from iPhone → Ubuntu GPU box (transcription + speaker ID) → Mac (KB build → markdown + graph.db). KB is queried via Claude Code + `query_graph.py`. Scripts in this repo run on **both Mac and Ubuntu** — the split matters.
 
 ## Running Tests
 
@@ -119,8 +119,6 @@ build_contacts_db.py  →  ~/contacts.db  (meetings, people, attendees tables)
     ↓
 build_graph.py  →  ~/graph.db  (action_items, decisions, graph_edges)
                       query_graph.py  →  CLI for pre-meeting briefings, open items
-    ↓
-upload_knowledge_base_incremental.py  →  Open WebUI
 ```
 
 ### KB Meeting Frontmatter
@@ -193,9 +191,9 @@ dismissed_pairs (name1, name2)
 
 **Design inspiration:** Tiago Forte's "Building a Second Brain" (CODE framework). Pipeline implements Capture (automated), Organise (domain categories), Distil (LLM extraction + progressive summarisation), Express (prep briefings, weekly review, tags). See `docs/` for the book.
 
-### Upload Design (disabled)
+### Open WebUI (retired 2026-04-27)
 
-Open WebUI upload disabled from nightly rebuild — replaced by Claude Code + `query_graph.py` for KB queries. Upload scripts still exist for manual use if needed. Open WebUI still runs for general chat.
+Open WebUI is no longer part of the pipeline. KB queries are handled by Claude Code + `query_graph.py`. The upload step has been removed from both `rebuild-knowledge-base.sh` and `sync-knowledge-base.sh`. `upload_knowledge_base_incremental.py` is left in the repo as legacy and not invoked by any agent.
 
 ### iCloud File Access
 
@@ -229,8 +227,7 @@ The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"`
 
 | Component | Details |
 |---|---|
-| Ubuntu | `eoin@nvidiaubuntubox`, Tailscale `100.121.184.27`, SSH key auth, password `el` |
-| Open WebUI | `http://100.121.184.27:8080` |
+| Ubuntu | `eoin@nvidiaubuntubox`, Tailscale `100.121.184.27`, SSH key auth, password `el`. MagicDNS is off tailnet-wide (preserves AdGuard filtering); the Mac resolves the hostname via `~/.ssh/config` alias to the Tailscale IP |
 | LiteLLM proxy | Ubuntu port 4000, models: `claude-sonnet-4-6`, `claude-haiku-4-5` |
 | ollama-box | `192.168.0.70:11434`, Debian 13 bhyve VM on FreeBSD (192.168.0.14), RTX 4060 8GB, `qwen2.5:14b` (~8 tok/s, ~13s/classification). Start VM: `ssh eoin@192.168.0.14 "echo el \| sudo -S vm start ollama-box"` |
 | WhisperX | Ubuntu RTX 5060 Ti 16GB, model `large-v3`, CUDA float16. `watch-and-transcribe.sh` handles new files via inotify; `watchdog-transcribe.sh` runs every 30 min via systemd timer to catch misses and retry failed classifications |
