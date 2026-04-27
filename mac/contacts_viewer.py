@@ -1047,7 +1047,15 @@ def api_merge():
     ).fetchone()
     canonical_display = canonical_row["display"] if canonical_row else canonical_raw
 
-    # Reassign all attendee records from alias → canonical raw name
+    # Reassign all attendee records from alias → canonical raw name.
+    # First delete alias rows from meetings where canonical is already present,
+    # otherwise the UPDATE collides with the (meeting_id, person_name) PK
+    # (e.g. an LLM extraction that listed both "Farah" and "Farah Garry").
+    conn.execute(
+        "DELETE FROM attendees WHERE person_name = ? "
+        "AND meeting_id IN (SELECT meeting_id FROM attendees WHERE person_name = ?)",
+        (alias_raw, canonical_raw)
+    )
     conn.execute(
         "UPDATE attendees SET person_name=? WHERE person_name=?",
         (canonical_raw, alias_raw)
