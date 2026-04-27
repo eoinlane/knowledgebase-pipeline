@@ -161,7 +161,7 @@ dismissed_pairs (name1, name2)
 
 `process_inbox.py` watches `~/inbox/` (via launchd WatchPaths). Supported: `.pdf`, `.docx`, `.pptx`, `.eml`, `.txt`, `.md`, images. Classification via LiteLLM proxy at `http://100.121.184.27:4000` using `claude-haiku-4-5`. Outputs to `~/knowledge_base/documents/`. Emails (`.eml`) extract body + embedded attachments into a single KB doc with `type: email` frontmatter.
 
-**Audio dropped in `~/inbox/`** is handled by a sibling agent `com.eoin.sync-inbox-audio` (`mac/launchd/sync-inbox-audio.sh`), which rsyncs `.mp3` / `.m4a` to `nvidiaubuntubox:~/audio-inbox/Notes/` and files the local copy into `~/inbox/done/`. Plaud recordings (filename `YYYY-MM-DD_HH_MM_SS.mp3`) are then picked up by the Ubuntu `transcribe-watchdog.timer` (every 30 min, `MIN_AGE_MINUTES=15`) — the inotify watcher (`watch-and-transcribe.sh`) only fires on `.m4a`. Finder duplicates (`* copy *`, `*_copy*`) are skipped to avoid re-processing.
+**Audio dropped in `~/inbox/`** is handled by a sibling agent `com.eoin.sync-inbox-audio` (`mac/launchd/sync-inbox-audio.sh`), which rsyncs `.mp3` / `.m4a` to `nvidiaubuntubox:~/audio-inbox/Notes/` and then deletes the local Mac copy — the canonical audio lives on Ubuntu (and Plaud keeps its own copy on the device), so the Mac copy is just disk noise. Plaud recordings (filename `YYYY-MM-DD_HH_MM_SS.mp3`) are then picked up by the Ubuntu `transcribe-watchdog.timer` (every 30 min, `MIN_AGE_MINUTES=15`) — the inotify watcher (`watch-and-transcribe.sh`) only fires on `.m4a`. Finder duplicates (`* copy*`, `*_copy*`) are skipped to avoid re-processing.
 
 ### Knowledge Graph (graph.db)
 

@@ -3,16 +3,17 @@
 # ~/audio-inbox/Notes/ where the transcription pipeline picks them up.
 # Triggered by launchd WatchPaths on ~/inbox/. After a successful upload
 # (or a no-op when the same name already exists on Ubuntu), the local
-# file is moved to ~/inbox/done/ to avoid re-processing.
+# Mac copy is deleted — the canonical audio lives on Ubuntu, and Plaud
+# keeps its own copy on the device, so a third copy on the Mac is just
+# disk noise.
 #
 # Idempotent: uses rsync --ignore-existing so a file that's already on
-# Ubuntu is skipped, then the local copy is filed away. Files with
-# " copy " or "_copy" in the name (Finder duplicates) are skipped.
+# Ubuntu is a no-op upload, then the local is removed. Files with
+# " copy" or "_copy" in the name (Finder duplicates) are skipped.
 
 LOG="/Users/eoin/.local/bin/sync-inbox-audio.log"
 LOCK="/tmp/sync-inbox-audio.lock"
 INBOX="/Users/eoin/inbox"
-DONE="$INBOX/done"
 UBUNTU_TARGET="nvidiaubuntubox:audio-inbox/Notes/"
 
 if [ -f "$LOCK" ]; then
@@ -24,8 +25,6 @@ if [ -f "$LOCK" ]; then
 fi
 echo $$ > "$LOCK"
 trap "rm -f '$LOCK'" EXIT
-
-mkdir -p "$DONE"
 
 shopt -s nullglob
 found=0
@@ -43,10 +42,10 @@ for f in "$INBOX"/*.mp3 "$INBOX"/*.m4a; do
     if rsync -a --ignore-existing --partial \
             -e "ssh -o StrictHostKeyChecking=no" \
             "$f" "$UBUNTU_TARGET" >> "$LOG" 2>&1; then
-        if mv -n "$f" "$DONE/" 2>>"$LOG"; then
-            echo "$(date): Done $name (filed in ~/inbox/done/)" >> "$LOG"
+        if rm -- "$f" 2>>"$LOG"; then
+            echo "$(date): Done $name (uploaded; local removed)" >> "$LOG"
         else
-            echo "$(date): Uploaded $name but local move FAILED" >> "$LOG"
+            echo "$(date): Uploaded $name but local rm FAILED" >> "$LOG"
         fi
     else
         echo "$(date): Upload FAILED for $name (will retry on next trigger)" >> "$LOG"
