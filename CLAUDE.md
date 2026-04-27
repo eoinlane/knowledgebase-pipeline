@@ -181,7 +181,7 @@ dismissed_pairs (name1, name2)
 
 **Progressive summarisation:** `synthesise` command calls Claude Haiku via LiteLLM to produce trajectory narratives per person/project from meeting summaries, action items, and decisions. Stored in `syntheses` table (preserved across rebuilds). On re-run, previous synthesis is included as context for progressive compression.
 
-**Weekly review:** `review` command shows meetings by project, your commitments, others' commitments, decisions made, overdue items (2-8 weeks), and people gone quiet (3+ weeks).
+**Weekly review:** `review` command shows meetings by project, your commitments, others' commitments, decisions made, overdue items (2-8 weeks), and people gone quiet (3+ weeks). The `com.eoin.weekly-review` launchd agent runs this every Monday 07:00 with `--weeks 2` (covers the week that just ended) and writes to `~/knowledge_base/_reviews/YYYY-Wnn.md`.
 
 **Haiku fallback:** `classify_transcript.py` and `identify_speakers.py` try ollama-box first, fall back to Claude Haiku via LiteLLM if ollama is unreachable. Pipeline keeps running when Proxmox box is offline.
 
