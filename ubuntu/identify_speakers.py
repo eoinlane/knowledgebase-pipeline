@@ -470,7 +470,12 @@ Transcript:
         with open(MAPPINGS_FILE, "w") as f:
             json.dump(mappings, f, indent=2)
 
-    # Rewrite transcript
+    # Rewrite transcript.
+    # First-time runs find [SPEAKER_XX] placeholders. Re-runs after a
+    # manually-corrected mapping (e.g. user fixed a misattribution) need to
+    # replace the previously-applied label instead. We track the last applied
+    # form in the mapping under `applied_as` so subsequent re-runs work
+    # name-to-name as well as placeholder-to-name.
     new_content = content
     for label, info in speaker_map.items():
         if not info or not isinstance(info, dict):
@@ -480,7 +485,25 @@ Transcript:
         if not name:
             continue
         display = name if confidence == "high" else f"{name}?"
-        new_content = new_content.replace(f"[{label}]", f"[{display}]")
+        target = f"[{display}]"
+
+        placeholder = f"[{label}]"
+        if placeholder in new_content:
+            new_content = new_content.replace(placeholder, target)
+        else:
+            prior = info.get("applied_as")
+            if prior and prior != display and f"[{prior}]" in new_content:
+                n = new_content.count(f"[{prior}]")
+                new_content = new_content.replace(f"[{prior}]", target)
+                print(f"    Re-mapped {label}: [{prior}] → [{display}] ({n} occurrences)")
+        info["applied_as"] = display
+
+    # Persist the applied_as so future re-runs on a manually-corrected mapping
+    # can locate the previous label form to replace.
+    if uuid in mappings:
+        mappings[uuid]["mappings"] = speaker_map
+        with open(MAPPINGS_FILE, "w") as f:
+            json.dump(mappings, f, indent=2)
 
     import tempfile
     tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(transcript_path), suffix=".txt")
