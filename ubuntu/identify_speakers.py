@@ -24,11 +24,27 @@ if os.path.isdir(PIPELINE_DIR) and PIPELINE_DIR not in sys.path:
 try:
     from shared.config import OLLAMA_URL, MODEL
     from shared.name_expansions import CATEGORY_NAME_EXPANSIONS
+    from shared.atomic_io import atomic_write_json
     _SHARED_LOADED = True
 except ImportError:
     _SHARED_LOADED = False
     OLLAMA_URL = "http://192.168.0.70:11434/api/chat"
     MODEL = "qwen2.5:14b"
+    # Inline fallback for atomic_write_json — same write-then-rename semantics.
+    def atomic_write_json(path, data):
+        import tempfile
+        dir_name = os.path.dirname(path) or "."
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.rename(tmp_path, path)
+        except BaseException:
+            try: os.unlink(tmp_path)
+            except OSError: pass
+            raise
 MAPPINGS_FILE    = os.path.expanduser("~/speaker_mappings.json")
 REGISTRY_FILE    = os.path.expanduser("~/speaker_registry.json")
 CATALOG_FILE     = os.path.expanduser("~/voice_catalog.json")
@@ -211,8 +227,7 @@ def auto_enrol(uuid, voice_matches, catalog):
         enrolled.append((label, name))
 
     if enrolled:
-        with open(CATALOG_FILE, "w") as f:
-            json.dump(catalog, f, indent=2)
+        atomic_write_json(CATALOG_FILE, catalog)
     return enrolled
 
 
@@ -711,8 +726,7 @@ Transcript:
                         "key_people_hint": key_people,
                         "mappings_updated_at": datetime.now().isoformat(timespec="seconds"),
                     }
-                    with open(MAPPINGS_FILE, "w") as f:
-                        json.dump(mappings, f, indent=2)
+                    atomic_write_json(MAPPINGS_FILE, mappings)
                 else:
                     print(f"  Could not parse JSON from response:\n{raw[:300]}", file=sys.stderr)
                     sys.exit(1)
@@ -737,8 +751,7 @@ Transcript:
             "key_people_hint": key_people,
             "mappings_updated_at": datetime.now().isoformat(timespec="seconds"),
         }
-        with open(MAPPINGS_FILE, "w") as f:
-            json.dump(mappings, f, indent=2)
+        atomic_write_json(MAPPINGS_FILE, mappings)
 
     # Rewrite transcript via TWO-PASS substitution to avoid cascade bugs.
     # If we did sequential `replace(old, new)` calls and two speakers swap
@@ -789,8 +802,7 @@ Transcript:
     # Persist the applied_as so future re-runs can locate the previous label.
     if uuid in mappings:
         mappings[uuid]["mappings"] = speaker_map
-        with open(MAPPINGS_FILE, "w") as f:
-            json.dump(mappings, f, indent=2)
+        atomic_write_json(MAPPINGS_FILE, mappings)
 
     import tempfile
     tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(transcript_path), suffix=".txt")

@@ -21,6 +21,23 @@ import numpy as np
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+# Atomic JSON write — same pattern as shared/atomic_io.py. Inlined here so the
+# script works whether or not shared/ is on the path.
+def atomic_write_json(path, data):
+    import tempfile
+    dir_name = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp_path, path)
+    except BaseException:
+        try: os.unlink(tmp_path)
+        except OSError: pass
+        raise
+
 MAPPINGS_FILE  = os.path.expanduser("~/speaker_mappings.json")
 REGISTRY_FILE  = os.path.expanduser("~/speaker_registry.json")
 CATALOG_FILE   = os.path.expanduser("~/voice_catalog.json")
@@ -182,8 +199,7 @@ def update_voice_catalog(uuid, speaker_map, today_str):
         updated.append(f"{name} ({n_segs} segs)")
 
     if updated:
-        with open(CATALOG_FILE, "w") as f:
-            json.dump(catalog, f, indent=2)
+        atomic_write_json(CATALOG_FILE, catalog)
 
     return updated
 
@@ -503,8 +519,7 @@ for n_idx, (uuid, data) in enumerate(candidates.items(), 1):
                     update_registry(registry, name, samples, today_str)
                     harvested.append(f"{name} ({len(samples)} samples)")
 
-            with open(REGISTRY_FILE, "w") as f:
-                json.dump(registry, f, indent=2)
+            atomic_write_json(REGISTRY_FILE, registry)
 
             if harvested:
                 print(f"  Registry updated: {', '.join(harvested)}")
@@ -552,8 +567,7 @@ for n_idx, (uuid, data) in enumerate(candidates.items(), 1):
         print("  Skipped.\n")
 
 if changed:
-    with open(MAPPINGS_FILE, "w") as f:
-        json.dump(mappings, f, indent=2)
+    atomic_write_json(MAPPINGS_FILE, mappings)
     print("Mappings saved.")
     print()
     print("To sync updated transcripts to Mac and rebuild knowledge base:")
