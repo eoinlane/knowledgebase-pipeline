@@ -34,8 +34,27 @@ CATALOG_FILE     = os.path.expanduser("~/voice_catalog.json")
 EMBEDDINGS_DIR   = os.path.expanduser("~/audio-inbox/Embeddings")
 KB_MEETINGS_DIR  = os.path.expanduser("~/knowledge_base/meetings")
 
-VOICE_THRESHOLD_HIGH   = 0.80  # cosine similarity → high confidence
-VOICE_THRESHOLD_MEDIUM = 0.70  # cosine similarity → medium confidence
+# Voice match thresholds — tuned 2026-04-28 after misattribution incident
+# (Cathal Bellew's 1-sample fingerprint matched Declan Sheehan's 1-sample
+# fingerprint at 0.724, mistakenly clearing the medium bar).
+#
+# Two changes from the original 0.80/0.70 single-threshold approach:
+#   1. Match score = mean of TOP 3 sample similarities (not mean over all).
+#      Preserves variation, robust to a single bad sample.
+#   2. Margin requirement: best score must beat runner-up by ≥ MARGIN.
+#      Sub-margin matches fall through to LLM identification instead of
+#      being silently labelled with the wrong name.
+VOICE_THRESHOLD_HIGH   = 0.85  # was 0.80
+VOICE_THRESHOLD_MEDIUM = 0.75  # was 0.70
+VOICE_MARGIN_HIGH      = 0.05
+VOICE_MARGIN_MEDIUM    = 0.03
+
+# Auto-enrol unambiguous matches: if a voice match is very high AND
+# significantly beats the runner-up, append this recording's embedding to
+# that person's catalog (rolling 20). Grows the catalog without needing
+# manual review_speakers.py confirmations.
+AUTO_ENROL_MIN_SIM    = 0.92
+AUTO_ENROL_MIN_MARGIN = 0.10
 
 # Category-specific name expansion — imported from shared, with inline fallback
 if not _SHARED_LOADED:
@@ -102,10 +121,22 @@ def cosine_sim(a, b):
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
 
 
+def _score_candidate(label_emb, stored):
+    """Mean of the top-3 cosine similarities against the candidate's stored
+    samples. Top-K is robust to outliers (one bad sample doesn't drag the
+    score down) while still requiring multiple agreeing samples for a high
+    score. Falls back to max for catalogs with <3 samples."""
+    sims = sorted((cosine_sim(label_emb, s) for s in stored), reverse=True)
+    top = sims[:3]
+    return sum(top) / len(top) if top else 0.0
+
+
 def voice_match(uuid, speakers, catalog):
     """
     Compare per-speaker embeddings from this recording against voice catalog.
-    Returns {label: {name, confidence, similarity, method}} for matched speakers.
+    Returns {label: {name, confidence, similarity, margin, runner_up, method}}
+    for matched speakers. Sub-threshold or low-margin matches are dropped so
+    the LLM can have a fresh attempt at identification.
     """
     emb_file = os.path.join(EMBEDDINGS_DIR, uuid + ".json")
     if not os.path.exists(emb_file) or not catalog:
@@ -120,25 +151,68 @@ def voice_match(uuid, speakers, catalog):
             continue
         label_emb = recording_embs[label]["embedding"]
 
-        best_name, best_sim = None, 0.0
+        # Score against every catalog person; sort to find best + runner-up.
+        scores = []
         for name, data in catalog.items():
             stored = data.get("embeddings", [])
             if not stored:
                 continue
-            # Compare against mean of stored embeddings
-            mean_emb = np.mean(stored, axis=0)
-            sim = cosine_sim(label_emb, mean_emb)
-            if sim > best_sim:
-                best_sim, best_name = sim, name
+            scores.append((name, _score_candidate(label_emb, stored)))
+        if not scores:
+            continue
+        scores.sort(key=lambda x: -x[1])
+        best_name, best_sim = scores[0]
+        runner_up_name, runner_up_sim = scores[1] if len(scores) > 1 else (None, 0.0)
+        margin = best_sim - runner_up_sim
 
-        if best_sim >= VOICE_THRESHOLD_HIGH:
-            matches[label] = {"name": best_name, "confidence": "high",
-                              "similarity": round(best_sim, 3), "method": "voice"}
-        elif best_sim >= VOICE_THRESHOLD_MEDIUM:
-            matches[label] = {"name": best_name, "confidence": "medium",
-                              "similarity": round(best_sim, 3), "method": "voice"}
+        common = {
+            "name": best_name,
+            "similarity": round(best_sim, 3),
+            "margin": round(margin, 3),
+            "runner_up": runner_up_name,
+            "runner_up_similarity": round(runner_up_sim, 3),
+            "method": "voice",
+        }
+        if best_sim >= VOICE_THRESHOLD_HIGH and margin >= VOICE_MARGIN_HIGH:
+            matches[label] = {**common, "confidence": "high"}
+        elif best_sim >= VOICE_THRESHOLD_MEDIUM and margin >= VOICE_MARGIN_MEDIUM:
+            matches[label] = {**common, "confidence": "medium"}
+        # else: sub-margin or sub-threshold → fall through to LLM
 
     return matches
+
+
+def auto_enrol(uuid, voice_matches, catalog):
+    """Append the recording's embedding for any unambiguously-matched
+    speaker to that person's catalog (rolling window of 20). Returns the
+    list of (label, name) pairs that were enrolled."""
+    emb_file = os.path.join(EMBEDDINGS_DIR, uuid + ".json")
+    if not os.path.exists(emb_file):
+        return []
+    with open(emb_file) as f:
+        recording_embs = json.load(f)
+
+    enrolled = []
+    for label, m in voice_matches.items():
+        if m.get("confidence") != "high":
+            continue
+        if m.get("similarity", 0) < AUTO_ENROL_MIN_SIM:
+            continue
+        if m.get("margin", 0) < AUTO_ENROL_MIN_MARGIN:
+            continue
+        if label not in recording_embs:
+            continue
+        name = m["name"]
+        person = catalog.setdefault(name, {"embeddings": []})
+        person["embeddings"].append(recording_embs[label]["embedding"])
+        if len(person["embeddings"]) > 20:
+            person["embeddings"] = person["embeddings"][-20:]
+        enrolled.append((label, name))
+
+    if enrolled:
+        with open(CATALOG_FILE, "w") as f:
+            json.dump(catalog, f, indent=2)
+    return enrolled
 
 
 def extract_name_cues(content, attendees, category):
@@ -317,7 +391,15 @@ if __name__ == "__main__":
         if voice_matches:
             print(f"  Voice matches found:")
             for label, m in voice_matches.items():
-                print(f"    {label} → {m['name']} ({m['confidence']}, sim={m['similarity']})")
+                runner_up = m.get("runner_up")
+                margin = m.get("margin", 0)
+                ru = f", runner-up={runner_up} @ {m.get('runner_up_similarity', 0)}" if runner_up else ""
+                print(f"    {label} → {m['name']} ({m['confidence']}, "
+                      f"sim={m['similarity']}, margin={margin}{ru})")
+            # Auto-enrol very-confident matches into catalog (compounds reliability)
+            enrolled = auto_enrol(uuid, voice_matches, voice_catalog)
+            for label, name in enrolled:
+                print(f"    ✓ Auto-enrolled {label} → {name} (catalog now {len(voice_catalog[name]['embeddings'])} samples)")
 
         # Speakers not yet matched by voice → ask LLM
         unmatched = [s for s in speakers if s not in voice_matches]
@@ -470,13 +552,19 @@ Transcript:
         with open(MAPPINGS_FILE, "w") as f:
             json.dump(mappings, f, indent=2)
 
-    # Rewrite transcript.
-    # First-time runs find [SPEAKER_XX] placeholders. Re-runs after a
-    # manually-corrected mapping (e.g. user fixed a misattribution) need to
-    # replace the previously-applied label instead. We track the last applied
-    # form in the mapping under `applied_as` so subsequent re-runs work
-    # name-to-name as well as placeholder-to-name.
+    # Rewrite transcript via TWO-PASS substitution to avoid cascade bugs.
+    # If we did sequential `replace(old, new)` calls and two speakers swap
+    # names (e.g. SPEAKER_00 was Cathal, becomes Eoin; SPEAKER_01 was Eoin,
+    # becomes Cathal), the second replacement would clobber the first's
+    # output. Pass 1 replaces every old label with a unique sentinel; pass 2
+    # replaces sentinels with final names.
+    #
+    # Carry forward `applied_as` from the previously-saved mapping so the
+    # LLM-fallback path can also benefit from name-to-name substitution.
+    prev_mapping = (mappings.get(uuid, {}) or {}).get("mappings", {}) or {}
+
     new_content = content
+    sentinels = []  # (label, sentinel, target)
     for label, info in speaker_map.items():
         if not info or not isinstance(info, dict):
             continue
@@ -487,19 +575,30 @@ Transcript:
         display = name if confidence == "high" else f"{name}?"
         target = f"[{display}]"
 
+        # Pull applied_as from previous saved mapping if not already on info
+        # (LLM-returned dicts won't carry applied_as; previous saved ones will).
+        applied_as = info.get("applied_as") or prev_mapping.get(label, {}).get("applied_as")
+
+        # What's currently in the transcript? Try [SPEAKER_XX] first, then
+        # fall back to the previously-applied label form.
         placeholder = f"[{label}]"
+        sentinel = f"\x00__SLOT_{label}__\x00"
         if placeholder in new_content:
-            new_content = new_content.replace(placeholder, target)
-        else:
-            prior = info.get("applied_as")
-            if prior and prior != display and f"[{prior}]" in new_content:
-                n = new_content.count(f"[{prior}]")
-                new_content = new_content.replace(f"[{prior}]", target)
-                print(f"    Re-mapped {label}: [{prior}] → [{display}] ({n} occurrences)")
+            new_content = new_content.replace(placeholder, sentinel)
+            sentinels.append((label, sentinel, target, "placeholder"))
+        elif applied_as and f"[{applied_as}]" in new_content and applied_as != display:
+            n = new_content.count(f"[{applied_as}]")
+            new_content = new_content.replace(f"[{applied_as}]", sentinel)
+            sentinels.append((label, sentinel, target, f"[{applied_as}]"))
+            print(f"    Re-mapped {label}: [{applied_as}] → [{display}] ({n} occurrences)")
+
         info["applied_as"] = display
 
-    # Persist the applied_as so future re-runs on a manually-corrected mapping
-    # can locate the previous label form to replace.
+    # Pass 2: sentinels → final targets
+    for label, sentinel, target, _src in sentinels:
+        new_content = new_content.replace(sentinel, target)
+
+    # Persist the applied_as so future re-runs can locate the previous label.
     if uuid in mappings:
         mappings[uuid]["mappings"] = speaker_map
         with open(MAPPINGS_FILE, "w") as f:

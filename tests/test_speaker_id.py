@@ -287,6 +287,79 @@ class TestVoiceMatch:
         if "SPEAKER_00" in result:
             assert result["SPEAKER_00"]["name"] == "Eoin Lane"
 
+    def test_low_margin_falls_through(self, tmp_path, monkeypatch):
+        """Two near-identical scores → match dropped, LLM gets a chance."""
+        rng = np.random.default_rng(7)
+        base = rng.standard_normal(192); base /= np.linalg.norm(base)
+        # Two catalog entries that BOTH match the query closely (<3pt margin)
+        n1 = rng.standard_normal(192) * 0.05
+        cand_a = base + n1; cand_a /= np.linalg.norm(cand_a)
+        n2 = rng.standard_normal(192) * 0.05
+        cand_b = base + n2; cand_b /= np.linalg.norm(cand_b)
+
+        catalog = {
+            "Cathal Bellew": {"embeddings": [cand_a.tolist()]},
+            "Declan Sheehan": {"embeddings": [cand_b.tolist()]},
+        }
+        uuid = "TEST-UUID-MARGIN"
+        data = {"SPEAKER_00": {"embedding": base.tolist(), "n_segments": 3}}
+        (tmp_path / f"{uuid}.json").write_text(json.dumps(data))
+
+        import identify_speakers
+        monkeypatch.setattr(identify_speakers, "EMBEDDINGS_DIR", str(tmp_path))
+        result = voice_match(uuid, ["SPEAKER_00"], catalog)
+
+        # If the margin between top-1 and top-2 is below thresholds, the match
+        # should be dropped entirely so the LLM can decide.
+        from identify_speakers import _score_candidate
+        score_a = _score_candidate(base.tolist(), [cand_a.tolist()])
+        score_b = _score_candidate(base.tolist(), [cand_b.tolist()])
+        margin = abs(score_a - score_b)
+        if margin < 0.03:
+            assert "SPEAKER_00" not in result, \
+                f"Low-margin match should be dropped (margin={margin})"
+
+    def test_match_includes_runner_up_metadata(self, tmp_path, monkeypatch):
+        """Successful match should record runner_up + margin for diagnostics."""
+        emb = self._make_embedding(123)
+        far = self._make_embedding(456)  # orthogonal-ish
+        catalog = {
+            "Eoin Lane": {"embeddings": [emb]},
+            "Random Person": {"embeddings": [far]},
+        }
+        uuid = "TEST-UUID-RUNNERUP"
+        data = {"SPEAKER_00": {"embedding": emb, "n_segments": 5}}
+        (tmp_path / f"{uuid}.json").write_text(json.dumps(data))
+
+        import identify_speakers
+        monkeypatch.setattr(identify_speakers, "EMBEDDINGS_DIR", str(tmp_path))
+        result = voice_match(uuid, ["SPEAKER_00"], catalog)
+
+        assert "SPEAKER_00" in result
+        assert result["SPEAKER_00"]["name"] == "Eoin Lane"
+        assert "margin" in result["SPEAKER_00"]
+        assert "runner_up" in result["SPEAKER_00"]
+        assert result["SPEAKER_00"]["runner_up"] == "Random Person"
+        assert result["SPEAKER_00"]["margin"] > 0
+
+    def test_top_k_pooling_robust_to_outlier_sample(self, tmp_path, monkeypatch):
+        """A single bad sample in the catalog shouldn't tank the score for
+        an otherwise well-matched speaker (top-K instead of mean-over-all)."""
+        good = self._make_embedding(50)
+        bad = self._make_embedding(99999)  # unrelated outlier sample
+        catalog = {"Eoin Lane": {"embeddings": [good, good, good, bad]}}
+        uuid = "TEST-UUID-TOPK"
+        data = {"SPEAKER_00": {"embedding": good, "n_segments": 5}}
+        (tmp_path / f"{uuid}.json").write_text(json.dumps(data))
+
+        import identify_speakers
+        monkeypatch.setattr(identify_speakers, "EMBEDDINGS_DIR", str(tmp_path))
+        result = voice_match(uuid, ["SPEAKER_00"], catalog)
+
+        # Top-3 mean ignores the outlier; should still confidently match.
+        assert "SPEAKER_00" in result
+        assert result["SPEAKER_00"]["confidence"] == "high"
+
 
 # ── Real-data smoke tests ──────────────────────────────────────────────────────
 
