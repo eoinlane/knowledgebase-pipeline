@@ -13,6 +13,7 @@ Unknown                 → left as [SPEAKER_XX]
 
 import sys, os, json, re, csv
 from collections import defaultdict
+from datetime import datetime
 import urllib.request
 import numpy as np
 
@@ -707,7 +708,8 @@ Transcript:
                     mappings[uuid] = {
                         "mappings": speaker_map,
                         "confirmed": False,
-                        "key_people_hint": key_people
+                        "key_people_hint": key_people,
+                        "mappings_updated_at": datetime.now().isoformat(timespec="seconds"),
                     }
                     with open(MAPPINGS_FILE, "w") as f:
                         json.dump(mappings, f, indent=2)
@@ -732,7 +734,8 @@ Transcript:
         mappings[uuid] = {
             "mappings": speaker_map,
             "confirmed": False,
-            "key_people_hint": key_people
+            "key_people_hint": key_people,
+            "mappings_updated_at": datetime.now().isoformat(timespec="seconds"),
         }
         with open(MAPPINGS_FILE, "w") as f:
             json.dump(mappings, f, indent=2)

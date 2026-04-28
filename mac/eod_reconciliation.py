@@ -159,18 +159,25 @@ def _is_unconfirmed(uuid):
 
 
 def _trigger_speaker_id(uuid):
+    """Re-run speaker identification AND insight re-extraction. The two are
+    paired: when speaker labels change, the action items / decisions that
+    were extracted under the old labels are now wrong. Re-extracting
+    refreshes the insights JSON so owner attribution matches the current
+    speaker mapping."""
     cmd = (
         f"source ~/whisper-env/bin/activate && "
         f"python3 ~/identify_speakers.py "
+        f"{UBUNTU_TRANS_DIR}/{uuid}.txt {UBUNTU_CSV} && "
+        f"python3 ~/extract_meeting_insights.py "
         f"{UBUNTU_TRANS_DIR}/{uuid}.txt {UBUNTU_CSV}"
     )
     try:
         out = subprocess.run(
             ["ssh", "-o", "ConnectTimeout=10", UBUNTU_HOST, cmd],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True, text=True, timeout=600,
         )
         if out.returncode == 0:
-            last = out.stdout.strip().splitlines()[-3:]
+            last = out.stdout.strip().splitlines()[-4:]
             return True, " | ".join(last)
         return False, f"exit {out.returncode}: {out.stderr.strip()[:200]}"
     except Exception as e:

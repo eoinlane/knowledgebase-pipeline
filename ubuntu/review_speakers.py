@@ -460,8 +460,10 @@ for n_idx, (uuid, data) in enumerate(candidates.items(), 1):
                         speaker_map[label] = {"name": new_name, "confidence": "confirmed"}
             mappings[uuid]["mappings"] = speaker_map
 
-        # Mark confirmed
+        # Mark confirmed (stamp the change so reextract_stale_insights can
+        # later detect that this UUID's insights need a refresh).
         mappings[uuid]["confirmed"] = True
+        mappings[uuid]["mappings_updated_at"] = datetime.now().isoformat(timespec="seconds")
         changed = True
 
         # Rewrite transcript — apply confirmed names, strip '?' markers
@@ -515,6 +517,33 @@ for n_idx, (uuid, data) in enumerate(candidates.items(), 1):
                 print(f"  Voice catalog updated: {', '.join(voice_updated)}")
             else:
                 print(f"  Voice catalog: no embeddings file found for {uuid}")
+
+            # Re-extract insights — action items/decisions/follow-ups were
+            # extracted under the previous speaker labels and are now stale.
+            # Owners attributed to misattributed speakers (e.g. "Cathal Murphy"
+            # for what's actually Alex McKenzie) get corrected on re-run.
+            # Skipped silently if extract_meeting_insights or its env aren't
+            # available — confirm step still completes.
+            if os.path.exists(os.path.expanduser("~/extract_meeting_insights.py")):
+                import subprocess as _sp
+                print(f"  Re-extracting insights with corrected speaker labels...")
+                csv_path = os.path.expanduser("~/audio-inbox/classification.csv")
+                try:
+                    r = _sp.run(
+                        ["python3", os.path.expanduser("~/extract_meeting_insights.py"),
+                         txt_path, csv_path],
+                        capture_output=True, text=True, timeout=600,
+                    )
+                    if r.returncode == 0:
+                        # Show the last useful line
+                        for line in reversed(r.stdout.strip().splitlines()):
+                            if line.strip():
+                                print(f"    {line[:160]}")
+                                break
+                    else:
+                        print(f"    insights re-extraction failed (exit {r.returncode})")
+                except Exception as e:
+                    print(f"    insights re-extraction skipped: {e}")
         else:
             print(f"  Warning: transcript not found at {txt_path}")
 
