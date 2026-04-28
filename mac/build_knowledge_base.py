@@ -331,14 +331,22 @@ def find_meetings_by_time(recording_dt, cal_events):
     """Match a recording to calendar events by timestamp.
     recording_dt is naive UTC (from transcript header).
     Calendar event _dt is naive Dublin local time (from AppleScript/icalBuddy).
-    Match if recording is within 15 min before event start, or up to 60 min after
-    (covers recordings started just before or during a meeting).
+    Match if recording is within 30 min before event start, or up to 60 min after
+    (covers recordings started just before or during a meeting; widened from
+    15-before to 30-before because users sometimes hit record minutes ahead).
+
+    Returns a list of (delta_seconds_abs, score_negative, event) tuples,
+    sorted best-first. The first element is the canonical match.
     """
     if not recording_dt:
         return []
-    # Convert recording UTC → Dublin local (naive → aware → convert → naive for comparison)
     rec_aware = recording_dt.replace(tzinfo=UTC_TZ)
     rec_dublin = rec_aware.astimezone(DUBLIN_TZ).replace(tzinfo=None)
+
+    # Pre-compile the "Eoin & X" / "Eoin <> X" / "X | Eoin" title shape — strong
+    # signal that the event is a 1-on-1 whose title literally names both
+    # parties. We over-match on purpose; the score is additive, not exclusive.
+    eoin_pat = re.compile(r"\beoin\b", re.I)
 
     candidates = []
     for e in cal_events:
@@ -346,12 +354,56 @@ def find_meetings_by_time(recording_dt, cal_events):
         if not evt_dt:
             continue
         diff = (rec_dublin - evt_dt).total_seconds()
-        # diff > 0: recording started AFTER event start
-        # diff < 0: recording started BEFORE event start
-        if -900 <= diff <= 3600:  # 15 min before to 60 min after event start
-            candidates.append((abs(diff), 0, e))
-    candidates.sort(key=lambda x: x[0])
-    return candidates[:3]
+        if not (-1800 <= diff <= 3600):  # 30 min before to 60 min after
+            continue
+
+        # ── Score the candidate ────────────────────────────────────────────
+        # Negative score is preferred (sorted ascending) so we use minutes-
+        # away as the base cost. Bonuses subtract from the cost; penalties add.
+        score = abs(diff) / 60.0  # cost in minutes
+
+        title = (e.get("TITLE") or "").lower()
+        attendees_str = e.get("ATTENDEES") or ""
+        n_attendees = len([a for a in attendees_str.split("|")
+                           if a.strip() and a.strip() != "<>"])
+
+        # Title-specificity bonus: title literally names attendees ("Alex & Eoin",
+        # "eoin <> declan", "Eoin DCC Catch up"). Eoin's name in the title is
+        # a strong "this is the meeting" signal vs generic block titles.
+        if eoin_pat.search(title):
+            score -= 30
+        # "Catch up" / "Catch-up" / "Catchup" titles are usually 1-on-1s
+        if re.search(r"\bcatch[\s-]?up\b", title, re.I):
+            score -= 15
+        # Names like "X & Y" / "X <> Y" — both-parties-in-title pattern
+        if re.search(r"\s(?:&|and|<>|vs)\s", title, re.I) or "/" in title:
+            score -= 20
+
+        # Attendee count bonus: when Eoin is solo-recording, smaller meetings
+        # are usually the actual recorded one. 2-3 attendees is the sweet spot.
+        if n_attendees == 0:
+            score += 5  # untrustworthy event with no attendees
+        elif n_attendees <= 3:
+            score -= 25
+        elif n_attendees <= 6:
+            score -= 5
+        else:
+            score += (n_attendees - 6) * 2  # bigger meetings rank lower
+
+        # Time penalty: events significantly displaced from recording time
+        # are progressively less likely (the linear cost above isn't enough)
+        if abs(diff) > 1800:
+            score += 10
+
+        # We want lowest score = best, and ties broken by absolute time delta
+        candidates.append((score, abs(diff), e))
+
+    # Sort ascending: lowest score first, then closest in time
+    candidates.sort(key=lambda x: (x[0], x[1]))
+
+    # Return in the legacy 3-tuple shape expected by callers, with the
+    # canonical match first.
+    return [(time_delta, score, evt) for score, time_delta, evt in candidates[:5]]
 
 
 def find_meetings(note):
@@ -473,10 +525,18 @@ for note in notes:
     else:
         action_items = extract_action_items(transcript_body)
 
-    # Build people list from note + calendar attendees
+    # Build people list from note + calendar attendees.
+    # ONLY use the canonical (best-scored) calendar match — not the union of
+    # all overlapping events. Unioning produced polluted attendee lists when
+    # multiple events overlapped the recording window, leading downstream
+    # speaker-ID and insights to inherit wrong attribution. Near-misses are
+    # still listed in the markdown body's "Calendar Meetings" section for
+    # transparency, but they don't contribute to `attendees:` frontmatter.
     note_people = [p.strip() for p in note["key_people"].split(";") if p.strip()]
     all_attendees = []  # (name, email)
-    for _, _, mtg in meetings:
+    canonical_match = meetings[0] if meetings else None
+    if canonical_match:
+        _, _, mtg = canonical_match
         for a in mtg.get("ATTENDEES", "").split("|"):
             a = a.strip()
             if not a or a == "<>":
@@ -491,7 +551,6 @@ for note in notes:
                 # Plain display name (no email) — from Apple Calendar export
                 name = a.strip('"')
                 if name and "room" not in name.lower():
-                    # Could be email-only or display name
                     if "@" in name:
                         all_attendees.append(("", name))
                     else:
@@ -587,6 +646,24 @@ for note in notes:
     all_people_names = attendee_names + mentioned_names if (attendee_names or mentioned_names) else note_people
     people_yaml = ", ".join(f'"{p}"' for p in all_people_names) if all_people_names else '""'
     lines.append(f'people: [{people_yaml}]')
+
+    # Audit trail: who/when/why this meeting got the attendees it did.
+    # Lets a reviewer (human or future agent) immediately see whether the
+    # attendee list came from a confident calendar match, a CSV fallback,
+    # or a manual override — and which calendar event was matched.
+    if canonical_match:
+        delta_sec, score, mtg = canonical_match
+        delta_min = int(round(delta_sec / 60))
+        evt_title = (mtg.get("TITLE") or "").replace('"', '\\"')
+        lines.append(f'matched_event: "{evt_title}"')
+        lines.append(f'matched_event_score: {round(-score, 1)}')  # higher = better, hence negate
+        lines.append(f'matched_event_delta_min: {delta_min}')
+        lines.append(f'attendees_source: "calendar"')
+    elif note_people:
+        lines.append(f'attendees_source: "csv:key_people"')
+    else:
+        lines.append(f'attendees_source: "none"')
+    lines.append(f'matched_at: "{datetime.now().strftime("%Y-%m-%dT%H:%M:%S")}"')
     if meetings:
         mtg_titles = ", ".join(f'"{m[2]["TITLE"]}"' for m in meetings)
         lines.append(f'meetings: [{mtg_titles}]')

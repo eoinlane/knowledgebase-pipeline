@@ -24,9 +24,16 @@ echo "$(date): Incremental sync starting..." >> "$LOG"
 # several minutes during active syncs, so give it a generous head start.
 sleep 60
 
+# ── Step 0: Refresh calendar exports ──────────────────────────────────────────
+# Run before every build so meetings moved/added/cancelled during the day are
+# reflected. The 4am rebuild's snapshot would otherwise be stale by the time
+# midday recordings get processed. Non-fatal — if calendar export fails the
+# build can still use the most recent good cache (~/.local/share/kb/calendars/).
+echo "$(date): Refreshing calendar exports..." >> "$LOG"
+/bin/bash /Users/eoin/.local/bin/export-calendars.sh >> "$LOG" 2>&1 || \
+    echo "$(date): Calendar export failed — using cached files" >> "$LOG"
+
 # ── Step 1: Build KB markdown ─────────────────────────────────────────────────
-# Cal files in /tmp are refreshed by the daily 4am job.
-# If they're missing (e.g. after reboot), build still works without calendar data.
 echo "$(date): Building KB..." >> "$LOG"
 /usr/local/bin/python3 /Users/eoin/build_knowledge_base.py >> "$LOG" 2>&1
 if [ $? -ne 0 ]; then
