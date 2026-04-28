@@ -615,8 +615,8 @@ Your job: map each SPEAKER_XX label to a real person's full name.
 Rules:
 - The "Meeting title (from calendar)" is canonical. If the title literally names someone (e.g. "Alex & Eoin Catch up", "eoin <> declan"), those people ARE in the meeting — bias your IDs strongly toward them. The transcript's speaker labels and voice scores can be wrong; the calendar title is set by humans.
 - Use context clues: people addressing each other by name, self-introductions, role descriptions, subject matter
-- "Owen Lane" in transcript = Eoin Lane (transcription mishearing)
-- "Cahal" = Cathal (transcription mishearing)
+- ANY spelling variant of "Eoin Lane" in transcript = Eoin Lane (he is the recorder, always present). Known WhisperX mishearings: "Owen Lane", "Eoghan Lane", "Owen Layne". Normalise all to "Eoin Lane".
+- "Cahal" / "Carla" / "Cahill" / "Cottle" / "Karl Bellew" = Cathal Bellew
 - If you're not sure, return confidence "low" — do NOT guess wildly
 - If a speaker is completely unidentifiable, return null for that entry
 - Always include first + last name where you know it

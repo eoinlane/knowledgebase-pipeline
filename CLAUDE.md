@@ -123,11 +123,38 @@ build_graph.py  →  ~/graph.db  (action_items, decisions, graph_edges)
 
 ### KB Meeting Frontmatter
 
-Meeting files now have split people fields:
-- `attendees` — full names from calendar event matching (timestamp-based, ±60 min)
+Meeting files have split people fields:
+- `attendees` — full names from canonical calendar event match
 - `mentioned` — names from LLM `key_people` minus attendees (people discussed but not present)
 - `people` — legacy union of both for backward compatibility
-- Calendar matching uses `zoneinfo` for proper UTC↔Dublin timezone conversion
+- `matched_event` / `matched_event_score` / `matched_event_delta_min` / `attendees_source` / `matched_at` — audit trail showing which calendar event was matched, the score (lower = better), the delta in minutes from event start, and where attendees came from (`calendar` / `csv:key_people` / `none`). Lets a reviewer immediately see why a meeting got the attendees it did.
+
+### Calendar Matching
+
+`find_meetings_by_time()` in `build_knowledge_base.py` picks ONE canonical event per recording (not the union of overlapping events). Logic in priority order:
+
+1. **Window:** `[event_start − 30 min, event_end + 60 min]` in Dublin local. END comes from icalBuddy export (no `-eed` flag); falls back to `start + 60 min` window when END is missing.
+2. **Score (lower = better):** `cost_minutes = |delta|/60` plus title and attendee-count bonuses/penalties:
+   - Title contains "eoin": −30
+   - "catch up" / "catch-up": −15
+   - "X & Y" / "X <> Y" / "X / Y": −20
+   - Attendee count ≤ 3: −25; ≤ 6: −5; > 6: progressive penalty
+3. **Voice-overlap bonus:** when `~/.local/share/kb/speaker_mappings.json` has confirmed voice IDs for the recording (excluding Eoin), each match against an event's invitees gives a `−40` bonus. ≥ 2 matches reliably flips the choice when timestamps alone are ambiguous (e.g. two overlapping calendar events both within window).
+4. **Out-of-window voice fallback:** if no in-window event achieves ≥ 80% voice coverage and a same-day event covers ≥ 80% of confirmed voices with a coverage delta ≥ 0.4 over the best in-window candidate, that out-of-window event wins. Catches rescheduled meetings where the calendar wasn't updated.
+
+Calendar export at `~/.local/bin/export-calendars.sh` writes to `~/.local/share/kb/calendars/cal_*.txt`; survives reboot (formerly `/tmp/`). Last-first names from Outlook ("Dooley, Alan") are recombined into "Alan Dooley" by the export awk.
+
+### Name Normalisation
+
+`build_knowledge_base.py` normalises CSV `key_people` at build time as a belt-and-braces fix when the LLM mishears recurring names:
+
+- **Eoin Lane variants** (always the recorder): `Owen Lane`, `Eoghan Lane`, `Owen Layne` → `Eoin Lane`. Strips parenthetical clarifications first ("Owen Lane (Eoin)" → "Owen Lane" → "Eoin Lane").
+- **Cathal Bellew variants** (only in NTA category): `Cathal`, `Cahal`, `Cathal Murphy`, `Carla`, `Cahill`, `Cottle`, `Karl Bellew(s)` → `Cathal Bellew`.
+- LLM prompts in `classify_transcript.py` and `identify_speakers.py` enforce the same normalisation upstream.
+
+### Orphan KB File Cleanup
+
+When a meeting's category or topic changes between builds, the new file lands at `{date}_{time}_{new_category}_{new_slug}.md` while the old file persists. The build's tail-end orphan-cleanup block groups all `meetings/*.md` by `source_file` UUID and deletes all but the file with the most recent `matched_at` (or mtime). Logs `Removed N orphan(s)` when it acts. A separate launchd `com.eoin.check-kb-orphans` (Mondays 09:17) verifies the cleanup is firing and warns if orphans re-accumulate.
 
 ### Corrections Layer
 
@@ -164,6 +191,8 @@ dismissed_pairs (name1, name2)
 `process_inbox.py` watches `~/inbox/` (via launchd WatchPaths). Supported: `.pdf`, `.docx`, `.pptx`, `.eml`, `.txt`, `.md`, images. Classification via LiteLLM proxy at `http://100.121.184.27:4000` using `claude-haiku-4-5`. Outputs to `~/knowledge_base/documents/`. Emails (`.eml`) extract body + embedded attachments into a single KB doc with `type: email` frontmatter.
 
 **Audio dropped in `~/inbox/`** is handled by a sibling agent `com.eoin.sync-inbox-audio` (`mac/launchd/sync-inbox-audio.sh`), which rsyncs `.mp3` / `.m4a` to `nvidiaubuntubox:~/audio-inbox/Notes/` and then deletes the local Mac copy — the canonical audio lives on Ubuntu (and Plaud keeps its own copy on the device), so the Mac copy is just disk noise. Plaud recordings (filename `YYYY-MM-DD_HH_MM_SS.mp3`) are then picked up by the Ubuntu `transcribe-watchdog.timer` (every 30 min, `MIN_AGE_MINUTES=15`) — the inotify watcher (`watch-and-transcribe.sh`) only fires on `.m4a`. Finder duplicates (`* copy*`, `*_copy*`) are skipped to avoid re-processing.
+
+**Apple Notes recordings** (UUID-named `.m4a`) come from a separate path: when you record into an Apple Note, an iPhone Shortcut (or equivalent automation) drops the audio into iCloud Drive at `~/Library/Mobile Documents/com~apple~CloudDocs/My Notes Audio/`. The Mac launchd `com.eoin.sync-notes-audio` (`mac/launchd/sync-notes-audio.sh`) runs every 5 min, copies new files to `/tmp/notes-audio-sync/` to avoid iCloud `EDEADLK` mmap locks, then rsyncs to Ubuntu's `~/audio-inbox/Notes/`. Any new `.m4a` there fires the inotify watcher. **Apple Notes ≠ iCloud Drive** — recordings live in the Notes data store until something exports them; if the audio shows in the Notes app but doesn't reach `My Notes Audio/`, the export step hasn't fired yet.
 
 ### Knowledge Graph (graph.db)
 

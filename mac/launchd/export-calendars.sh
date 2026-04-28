@@ -28,6 +28,10 @@ export_calendar() {
     local OUTFILE="$2"
     local LABEL="$3"
 
+    # Note: -eed removed so the datetime line includes end time as
+    # "Monday 27 April 2026 at 16:00:00 - 17:00:00". The matcher needs end
+    # time to handle recordings that start late in a long meeting (e.g. board
+    # meetings that overrun, or where Eoin starts capture mid-discussion).
     "$ICALBUDDY" \
         -ic "$CAL_UID" \
         -iep "title,datetime,attendees" \
@@ -38,31 +42,69 @@ export_calendar() {
         -nnr " " \
         -df "%A %d %B %Y" \
         -tf "%H:%M:%S" \
-        -eed \
         eventsFrom:"$DATE_FROM" to:"$DATE_TO" 2>/dev/null | \
     awk '
     /^ITEM_START$/ {
         if (title != "") {
             print "TITLE: " title
             print "START: " start
+            if (end_time != "") print "END: " end_time
             if (attendees != "") print "ATTENDEES: " attendees
             print "---"
         }
-        title = ""; start = ""; attendees = ""
+        title = ""; start = ""; end_time = ""; attendees = ""
         next
     }
     /^attendees: / {
         att = substr($0, 12)
-        gsub(/, /, "|", att)
-        attendees = att
+        # Comma is the delimiter between attendees, EXCEPT when Outlook
+        # exports a name in last-first form ("Dooley, Alan"). Detect this:
+        # if a single-word token is followed by another single-word token
+        # (neither contains space or @), treat them as last,first and
+        # recombine as "First Last". Multi-word tokens (e.g. "Stephen
+        # Rigney") and emails are passed through unchanged.
+        n = split(att, parts, /, /)
+        out = ""
+        i = 1
+        while (i <= n) {
+            cur = parts[i]
+            sub(/^ +/, "", cur); sub(/ +$/, "", cur)
+            if (i < n) {
+                nxt = parts[i+1]
+                sub(/^ +/, "", nxt); sub(/ +$/, "", nxt)
+                if (cur !~ /[ @]/ && nxt !~ /[ @]/ && cur != "" && nxt != "") {
+                    cur = nxt " " cur
+                    i++
+                }
+            }
+            out = (out == "" ? cur : out "|" cur)
+            i++
+        }
+        attendees = out
         next
     }
     title == "" { title = $0; next }
-    start == "" && / at / { start = $0; next }
+    start == "" && / at / {
+        # Datetime line may be "Day DD Month YYYY at HH:MM:SS" (no end) OR
+        # "Day DD Month YYYY at HH:MM:SS - HH:MM:SS" (same-day end) OR
+        # "Day DD Month YYYY at HH:MM:SS - Day DD Month YYYY at HH:MM:SS"
+        # (multi-day end). Capture both pieces.
+        line = $0
+        sep = " - "
+        sep_pos = index(line, sep)
+        if (sep_pos > 0) {
+            start = substr(line, 1, sep_pos - 1)
+            end_time = substr(line, sep_pos + length(sep))
+        } else {
+            start = line
+        }
+        next
+    }
     END {
         if (title != "") {
             print "TITLE: " title
             print "START: " start
+            if (end_time != "") print "END: " end_time
             if (attendees != "") print "ATTENDEES: " attendees
             print "---"
         }

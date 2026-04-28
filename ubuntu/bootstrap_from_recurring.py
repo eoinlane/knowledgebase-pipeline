@@ -139,7 +139,11 @@ def identify_speakers(rec, attendees, vc):
     Returns: {speaker_label: (name, score, margin)}.
     Eoin must be confidently identified or we abort the whole recording.
     """
-    speakers = sorted(rec.keys())
+    speakers = [k for k, v in rec.items()
+                if isinstance(v, dict) and v.get("embedding")]
+    if not speakers:
+        return None
+    speakers.sort()
     n_speakers = len(speakers)
     n_attendees = len(attendees)
 
@@ -153,6 +157,8 @@ def identify_speakers(rec, attendees, vc):
             scores[sp][name] = _score_candidate(emb, cat) if cat else 0.0
 
     # Step 1: anchor Eoin
+    if not scores:
+        return None
     eoin_speaker = max(scores, key=lambda s: scores[s].get("Eoin Lane", 0))
     if scores[eoin_speaker].get("Eoin Lane", 0) < EOIN_ANCHOR_MIN:
         return None  # Eoin not confidently identified — abort

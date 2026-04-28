@@ -33,6 +33,18 @@ echo "$(date): Refreshing calendar exports..." >> "$LOG"
 /bin/bash /Users/eoin/.local/bin/export-calendars.sh >> "$LOG" 2>&1 || \
     echo "$(date): Calendar export failed — using cached files" >> "$LOG"
 
+# ── Step 0b: Pull confirmed speaker mappings from Ubuntu ──────────────────────
+# build_knowledge_base.py uses these to disambiguate overlapping calendar events
+# — when two events overlap and timestamp scoring is ambiguous, the event whose
+# invitees match the recording's confirmed voice IDs wins. Non-fatal — if SSH is
+# down, build falls back to timestamp-only scoring.
+echo "$(date): Pulling speaker_mappings.json from Ubuntu..." >> "$LOG"
+mkdir -p /Users/eoin/.local/share/kb
+rsync -az -e "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10" \
+    "$UBUNTU:/home/eoin/speaker_mappings.json" \
+    /Users/eoin/.local/share/kb/speaker_mappings.json >> "$LOG" 2>&1 || \
+    echo "$(date): speaker_mappings sync failed — using last cached copy" >> "$LOG"
+
 # ── Step 1: Build KB markdown ─────────────────────────────────────────────────
 echo "$(date): Building KB..." >> "$LOG"
 /usr/local/bin/python3 /Users/eoin/build_knowledge_base.py >> "$LOG" 2>&1

@@ -50,6 +50,38 @@ subprocess.run(["rsync", "-az", "-e", "ssh -o ConnectTimeout=5 -o BatchMode=yes"
     "eoin@nvidiaubuntubox:~/audio-inbox/Insights/", _TMP_INSIGHTS + "/"],
     capture_output=True, timeout=30)
 
+# ── Load confirmed speaker mappings (from Ubuntu, synced by sync-knowledge-base.sh)
+# Used to disambiguate overlapping calendar events: when timestamp scoring is
+# close, the event whose invitees match this recording's confirmed voice IDs
+# wins. Falls back gracefully if file is missing or stale.
+_SPEAKER_MAPPINGS_PATH = os.path.expanduser("~/.local/share/kb/speaker_mappings.json")
+SPEAKER_MAPPINGS = {}
+if os.path.exists(_SPEAKER_MAPPINGS_PATH):
+    try:
+        with open(_SPEAKER_MAPPINGS_PATH) as f:
+            SPEAKER_MAPPINGS = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        SPEAKER_MAPPINGS = {}
+
+
+def confirmed_voice_names(uuid):
+    """Return set of confirmed-voice attendee names for a recording.
+    Empty set if no entry, not confirmed, or no high-confidence voice IDs.
+    Excludes Eoin (always present) and `?`-marked low-confidence guesses."""
+    rec = SPEAKER_MAPPINGS.get(uuid, {})
+    if not isinstance(rec, dict) or not rec.get("confirmed"):
+        return set()
+    names = set()
+    for spk, m in (rec.get("mappings") or {}).items():
+        if not isinstance(m, dict):
+            continue
+        applied = m.get("applied_as") or m.get("name") or ""
+        # Skip uncertainty markers and Eoin (he's always there, not a tiebreaker)
+        if not applied or applied.endswith("?") or applied == "Eoin Lane":
+            continue
+        names.add(applied)
+    return names
+
 
 def icloud_read(path, **kwargs):
     """Read a file — now always from /tmp, never from iCloud Drive."""
@@ -90,6 +122,20 @@ def load_cal_file(path):
             dt = parse_dt(ev["START"])
             ev["_dt"] = dt
             ev["_date"] = dt.date() if dt else None
+            # END can be either same-day "HH:MM:SS" or full "Day DD Month YYYY HH:MM:SS"
+            end_str = ev.get("END", "").strip()
+            end_dt = None
+            if end_str and dt:
+                if " at " in end_str:
+                    end_dt = parse_dt(end_str)
+                else:
+                    # Same-day end: combine with event's date
+                    try:
+                        h, m, s = [int(x) for x in end_str.split(":")]
+                        end_dt = dt.replace(hour=h, minute=m, second=s)
+                    except (ValueError, AttributeError):
+                        end_dt = None
+            ev["_end_dt"] = end_dt
             events.append(ev)
     return events
 
@@ -327,13 +373,19 @@ DUBLIN_TZ = ZoneInfo("Europe/Dublin")
 UTC_TZ = ZoneInfo("UTC")
 
 
-def find_meetings_by_time(recording_dt, cal_events):
+def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
     """Match a recording to calendar events by timestamp.
     recording_dt is naive UTC (from transcript header).
     Calendar event _dt is naive Dublin local time (from AppleScript/icalBuddy).
     Match if recording is within 30 min before event start, or up to 60 min after
     (covers recordings started just before or during a meeting; widened from
     15-before to 30-before because users sometimes hit record minutes ahead).
+
+    `voice_names` (optional): set of confirmed voice-IDed attendee names from
+    speaker_mappings. When non-empty, candidates whose invitees overlap with
+    these names get a strong bonus — disambiguates overlapping calendar events
+    (a recording can sit between two events in time but only one will match the
+    voices in the room).
 
     Returns a list of (delta_seconds_abs, score_negative, event) tuples,
     sorted best-first. The first element is the canonical match.
@@ -342,6 +394,7 @@ def find_meetings_by_time(recording_dt, cal_events):
         return []
     rec_aware = recording_dt.replace(tzinfo=UTC_TZ)
     rec_dublin = rec_aware.astimezone(DUBLIN_TZ).replace(tzinfo=None)
+    voice_names = voice_names or set()
 
     # Pre-compile the "Eoin & X" / "Eoin <> X" / "X | Eoin" title shape — strong
     # signal that the event is a 1-on-1 whose title literally names both
@@ -354,8 +407,18 @@ def find_meetings_by_time(recording_dt, cal_events):
         if not evt_dt:
             continue
         diff = (rec_dublin - evt_dt).total_seconds()
-        if not (-1800 <= diff <= 3600):  # 30 min before to 60 min after
-            continue
+        # Window: 30 min before event start → 60 min after event END (or
+        # +60 min after start if no end time captured). This catches
+        # recordings made late in long meetings (e.g. board meeting that
+        # overruns by 30 min, recording starts 80 min into it).
+        evt_end = e.get("_end_dt")
+        if evt_end:
+            diff_end = (rec_dublin - evt_end).total_seconds()
+            if not (-1800 <= diff and diff_end <= 3600):
+                continue
+        else:
+            if not (-1800 <= diff <= 3600):
+                continue
 
         # ── Score the candidate ────────────────────────────────────────────
         # Negative score is preferred (sorted ascending) so we use minutes-
@@ -395,11 +458,94 @@ def find_meetings_by_time(recording_dt, cal_events):
         if abs(diff) > 1800:
             score += 10
 
+        # Voice-overlap bonus: dominates timestamp scoring when voices in the
+        # room match an event's invitees. Two overlapping events at similar
+        # times are otherwise indistinguishable — voice IDs are the only signal
+        # that disambiguates them. Scaling: -40 per matched name (compounds for
+        # 3-5 person meetings; a single match isn't enough to flip a strong
+        # timestamp winner, but ≥2 matches will). Compares last-token (surname)
+        # to handle "Khizer" vs "Khizer Ahmed Biyabani" form differences.
+        if voice_names:
+            evt_attendees = set()
+            for a in attendees_str.split("|"):
+                a = a.strip()
+                if not a or a == "<>":
+                    continue
+                evt_attendees.add(a)
+            # Match by full name OR by last token, case-insensitive
+            evt_lower = {a.lower() for a in evt_attendees}
+            evt_lasts = {a.split()[-1].lower() for a in evt_attendees if a.split()}
+            matches = 0
+            for v in voice_names:
+                vl = v.lower()
+                vlast = v.split()[-1].lower() if v.split() else ""
+                if vl in evt_lower or (vlast and vlast in evt_lasts):
+                    matches += 1
+            if matches:
+                score -= 40 * matches
+
         # We want lowest score = best, and ties broken by absolute time delta
         candidates.append((score, abs(diff), e))
 
     # Sort ascending: lowest score first, then closest in time
     candidates.sort(key=lambda x: (x[0], x[1]))
+
+    # Same-day voice fallback: if voice evidence covers an event's invitees
+    # and that event sits OUTSIDE the standard window, voice wins anyway.
+    # Real case: a 9am meeting got rescheduled to 14:00 but the calendar
+    # invite stayed at 9am — recording at 14:02 has no in-window event that
+    # matches the voices in the room. Trigger only when no in-window
+    # candidate matches the voices. Threshold for "matches": full coverage
+    # (every confirmed non-Eoin voice maps to an invitee) OR ≥2 matches.
+    # That keeps 1-on-1s (1 voice = 1 match) eligible while requiring
+    # stronger signal for larger meetings.
+    def _voice_stats(evt):
+        """Returns (matches, non_eoin_invitee_count, coverage_ratio).
+        Coverage = matches / non_eoin_invitees — measures how completely the
+        recording's voices fill this event. A small meeting with 1 voice
+        match (e.g. Cathal in a Cathal+Eoin 1-on-1) scores 100%; a 19-person
+        Governance Board with the same 1 voice match scores ~5%."""
+        if not voice_names:
+            return 0, 0, 0.0
+        attendees_str = evt.get("ATTENDEES") or ""
+        attendees = [a.strip() for a in attendees_str.split("|") if a.strip() and a.strip() != "<>"]
+        non_eoin = [a for a in attendees if a.lower() not in ("eoin lane", "eoin.lane@adaptcentre.ie", "eoinlane@gmail.com")]
+        evt_lower = {a.lower() for a in non_eoin}
+        evt_lasts = {a.split()[-1].lower() for a in non_eoin if a.split()}
+        matches = sum(1 for v in voice_names
+                      if v.lower() in evt_lower
+                      or (v.split() and v.split()[-1].lower() in evt_lasts))
+        n = max(1, len(non_eoin))
+        return matches, len(non_eoin), matches / n
+
+    if voice_names:
+        # Best in-window voice coverage
+        in_window_best = max(((_voice_stats(e)[2], _voice_stats(e)[0])
+                              for _, _, e in candidates), default=(0.0, 0))
+        # Search same-day for a stronger coverage match — required when the
+        # in-window winner only catches voices incidentally (e.g. Cathal in a
+        # 19-person board meeting hides a real 1-on-1 with Cathal that the
+        # calendar invite still has at 9am).
+        same_day = []
+        for e in cal_events:
+            evt_dt = e.get("_dt")
+            if not evt_dt or evt_dt.date() != rec_dublin.date():
+                continue
+            matches, n_invitees, coverage = _voice_stats(e)
+            if matches == 0:
+                continue
+            same_day.append((matches, coverage, abs((rec_dublin - evt_dt).total_seconds()), e))
+        if same_day:
+            # Prefer: highest coverage, then most matches, then closest in time
+            same_day.sort(key=lambda x: (-x[1], -x[0], x[2]))
+            top_matches, top_cov, top_delta, top_evt = same_day[0]
+            # Trigger override if the best same-day candidate beats every
+            # in-window candidate by ≥0.4 coverage AND is at least 80% covered.
+            # This protects against weak coincidental voice matches winning,
+            # while reliably catching rescheduled / out-of-window meetings.
+            if top_cov >= 0.8 and top_cov - in_window_best[0] >= 0.4:
+                synthetic_score = -100 * top_matches - int(top_cov * 50)
+                candidates.insert(0, (synthetic_score, top_delta, top_evt))
 
     # Return in the legacy 3-tuple shape expected by callers, with the
     # canonical match first.
@@ -492,8 +638,10 @@ for note in notes:
     # Strip the file header from transcript body
     transcript_body = re.sub(r"^File:.*?\n-{20,}\n", "", raw, flags=re.DOTALL).strip()
 
-    # Find matching calendar meetings — timestamp first, then token fallback
-    meetings = find_meetings_by_time(recording_dt, unique_events)
+    # Find matching calendar meetings — timestamp first, then token fallback.
+    # Pass confirmed voice IDs so the matcher can disambiguate overlapping events.
+    voice_names = confirmed_voice_names(note["filename"])
+    meetings = find_meetings_by_time(recording_dt, unique_events, voice_names=voice_names)
     if not meetings:
         meetings = find_meetings(note)
 
@@ -532,7 +680,39 @@ for note in notes:
     # speaker-ID and insights to inherit wrong attribution. Near-misses are
     # still listed in the markdown body's "Calendar Meetings" section for
     # transparency, but they don't contribute to `attendees:` frontmatter.
-    note_people = [p.strip() for p in note["key_people"].split(";") if p.strip()]
+    # Normalise WhisperX mishearings in CSV key_people. Two recurring issues:
+    # 1) Eoin Lane (the recorder, in every recording) gets misheard as Owen
+    #    Lane / Eoghan Lane / Owen Layne / etc.
+    # 2) Cathal Bellew (NTA team member, in most NTA recordings) gets misheard
+    #    as Cahal / Carla / Cahill / Cottle / Karl Bellew (with or without 's').
+    # The LLM prompts try to enforce normalisation but slip; this is a
+    # belt-and-braces fix at the KB layer so frontmatter stays clean.
+    EOIN_VARIANTS = ("owen lane", "eoghan lane", "owen layne", "eoin layne", "eoghan layne")
+    CATHAL_VARIANTS = ("cathal", "cahal", "cathal murphy", "carla", "cahill", "cottle",
+                       "karl bellew", "karl bellews")
+    def _normalise(name, category):
+        if not name:
+            return name
+        # Strip parenthetical clarifications: "Owen Lane (Eoin)" → "Owen Lane"
+        cleaned = re.sub(r"\s*\([^)]*\)\s*", " ", name).strip()
+        low = cleaned.lower()
+        if low in EOIN_VARIANTS:
+            return "Eoin Lane"
+        if category == "NTA" and low in CATHAL_VARIANTS:
+            return "Cathal Bellew"
+        return cleaned
+
+    # Split key_people on both `;` and `,` — newer CSV rows use comma-separated
+    # names within the field (e.g. "Eoghan Lane, Aoife") while older rows used
+    # semicolons. Without splitting on both, a multi-person field gets treated
+    # as one stringy "name".
+    key_people_raw = re.split(r"[;,]", note["key_people"])
+    note_people = [_normalise(p.strip(), note.get("category"))
+                   for p in key_people_raw if p.strip()]
+    # De-dupe while preserving order — normalisation can collapse multiple
+    # variants into the same canonical name.
+    seen = set()
+    note_people = [x for x in note_people if x and not (x in seen or seen.add(x))]
     all_attendees = []  # (name, email)
     canonical_match = meetings[0] if meetings else None
     if canonical_match:
@@ -798,6 +978,52 @@ for note in notes:
         print(f"  Generated {generated}...")
 
 print(f"\nGenerated {generated} markdown files ({skipped} skipped)")
+
+# ── Orphan cleanup ────────────────────────────────────────────────────────────
+# Filenames embed the meeting's category and slug, both of which can change
+# between builds (e.g. when the LLM re-classifies a recording from "DCC" to
+# "ADAPT", or the topic gets normalised). The build emits a new file under
+# the new name without removing the old one, leaving stale duplicates that
+# pollute search and `mentioned:` fields. Detect duplicates by source_file
+# UUID and keep only the most recent (newest matched_at, falling back to
+# mtime). One-off cleanup of 178 orphans was needed in 2026-04-28; this
+# block prevents them re-accumulating.
+print("Cleaning up orphan KB files...")
+import collections as _coll
+_kb_meetings = os.path.join(OUTPUT_DIR, "meetings")
+_by_uuid = _coll.defaultdict(list)
+for _f in os.listdir(_kb_meetings):
+    if not _f.endswith(".md"):
+        continue
+    _path = os.path.join(_kb_meetings, _f)
+    try:
+        with open(_path, errors="replace") as _fh:
+            _text = _fh.read(4096)  # frontmatter only
+    except OSError:
+        continue
+    _src_m = re.search(r"^source_file:\s*(\S+)", _text, re.MULTILINE)
+    _ma_m = re.search(r'^matched_at:\s*"([^"]+)"', _text, re.MULTILINE)
+    if not _src_m:
+        continue
+    _by_uuid[_src_m.group(1)].append((
+        _ma_m.group(1) if _ma_m else "",
+        os.path.getmtime(_path),
+        _path,
+    ))
+_removed = 0
+for _uuid, _entries in _by_uuid.items():
+    if len(_entries) <= 1:
+        continue
+    # Newer matched_at first; fall back to mtime when timestamps tie or are absent
+    _entries.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    for _ma, _mt, _path in _entries[1:]:
+        try:
+            os.remove(_path)
+            _removed += 1
+        except OSError:
+            pass
+if _removed:
+    print(f"  Removed {_removed} orphan(s)")
 
 # ── Generate people index pages ───────────────────────────────────────────────
 print("Building people index pages...")

@@ -28,8 +28,9 @@ UBUNTU_CSV = "/home/eoin/audio-inbox/classification.csv"
 
 def snapshot(target_date):
     """Capture relevant frontmatter fields for every KB meeting on `target_date`.
-    Keyed by source_file (UUID) for stable diffing across rebuilds (filenames
-    can change if topic/category changes)."""
+    Pass `target_date='all'` to snapshot the entire KB (used by historic
+    reconciliation runs). Keyed by source_file (UUID) for stable diffing across
+    rebuilds (filenames can change if topic/category changes)."""
     snap = {}
     for f in sorted(KB_MEETINGS.glob("*.md")):
         text = f.read_text(errors="replace")
@@ -38,8 +39,9 @@ def snapshot(target_date):
             continue
         fm = front.group(1)
         date_m = re.search(r"^date:\s*(\S+)", fm, re.MULTILINE)
-        if not date_m or date_m.group(1).strip() != target_date:
-            continue
+        if target_date != "all":
+            if not date_m or date_m.group(1).strip() != target_date:
+                continue
 
         def grab(field, multiline=False):
             m = re.search(rf"^{field}:\s*(.+?)$", fm, re.MULTILINE)

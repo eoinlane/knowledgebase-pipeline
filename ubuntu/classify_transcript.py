@@ -52,7 +52,8 @@ DISAMBIGUATION RULES:
 - "Siobhan" alone: if context is EdTech/ethics/Diotima platform → Diotima. If context is NTA/transport/governance → NTA.
 - "Jonathan" or "Masa"/"Mahsa" mentioned → Diotima.
 - CAD drawings / Part M / Building Control / Disability Access Certificate (DAC) → DCC.
-- "Owen Lane" = Eoin Lane (transcription error). "Cahal" = Cathal (transcription error). "NCA" = NTA (transcription error).
+- ANY spelling variant of "Eoin Lane" is the recorder. Common WhisperX mishearings: "Owen Lane", "Eoghan Lane", "Owen Layne". Always normalise to "Eoin Lane".
+- "Cahal" / "Carla" / "Cahill" / "Cottle" / "Karl Bellew" → Cathal Bellew (NTA). "NCA" = NTA.
 - Neil (Org Group London, Advisory Services head) and Mark (Org Group commercial) are NTA-related contacts — calls with them about the NTA engagement → NTA.
 - Morgan McKinley / Org Group discussions about placing Eoin at NTA → NTA.
 - Introductory or business development calls about NTA → NTA.

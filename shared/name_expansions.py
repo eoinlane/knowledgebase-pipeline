@@ -28,6 +28,9 @@ CATEGORY_NAME_EXPANSIONS = {
         "cathal": "Cathal Bellew",
         "cahal": "Cathal Bellew",
         "cathal murphy": "Cathal Bellew",
+        "carla": "Cathal Bellew",  # WhisperX mishears Irish "Cathal" (KAH-hul)
+        "cahill": "Cathal Bellew",
+        "cottle": "Cathal Bellew",
         "karl bellews": "Cathal Bellew",  # WhisperX mishears the Irish "Cathal" as "Karl" + adds an 's' to "Bellew"
         "karl bellew": "Cathal Bellew",
         "david spurley": "David Spurway",  # IBM Power EMEA — Whisper hears "Spurway" as "Spurley"
