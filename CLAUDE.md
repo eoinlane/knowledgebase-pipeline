@@ -204,6 +204,8 @@ dismissed_pairs (name1, name2)
 
 **People enrichment:** Two sources beyond frontmatter: (1) action item owners + follow-up assignees from insights JSON (confidence 0.9), (2) known-name scanning of transcript body against contacts.db roster (confidence 0.8).
 
+**Owner gating** (added 2026-04-28): every owner pulled from insights JSON is gated through `_gate_owner()` in `build_graph.py`. The gate (a) special-cases Eoin Lane variants → `eoin-lane`, (b) resolves through `shared.entity_resolver`, (c) falls back to matching this meeting's attendees, (d) drops the owner (NULL) if none match. When the slug resolves, the displayed owner is normalised to the canonical name from contacts.db (so "Cathal Murphy"/"Kizzer" become "Cathal Bellew"/"Khizer Ahmed Biyabani"). Surrounding junk chars (`'"\`*[]`) are stripped. On 2026-04-28 this dropped 1374 phantom owners (31% of action items) and consolidated 5 Cathal-spellings into one.
+
 **Entity resolution in graph:** Merges WhisperX mishearings (e.g. `pat-nester` → `pat-nestor`), first-name-only → full names via contacts.db resolved_name (preferring longer name), strips SPEAKER_XX/unknown/compound/junk entries. Resolver built from hardcoded mishearings + contacts.db mappings.
 
 **Insights extraction** (`extract_meeting_insights.py`) now passes CSV `key_people` + category + topic to the LLM as participant context, so action items get real owner names even when transcript has SPEAKER_XX labels.
@@ -252,7 +254,9 @@ The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"`
 
 ### Voice Catalog (Ubuntu ~/voice_catalog.json)
 
-22 people enrolled via 2-speaker call elimination (Eoin as anchor), calendar matching, and transcript name extraction. Grows automatically as new recordings are processed and confirmed. `reclassify_by_speaker.py` uses `shared/config.py:PERSON_CATEGORY` to override LLM categories based on who's speaking.
+29 people enrolled (as of 2026-04-28) via 2-speaker call elimination (Eoin as anchor), calendar matching, and transcript name extraction. Grows automatically as new recordings are processed and confirmed. `reclassify_by_speaker.py` uses `shared/config.py:PERSON_CATEGORY` to override LLM categories based on who's speaking.
+
+**Resilience:** all writes to `voice_catalog.json` and `speaker_mappings.json` go through `shared.atomic_io.atomic_write_json` (write-to-temp + fsync + rename) — eliminates the torn-write / 0-byte file failure mode that would otherwise destroy the catalog if a process gets killed mid-write. Nightly backup launchd `com.eoin.backup-voice-state` rsyncs both files plus `speaker_registry.json` to `~/.local/share/kb/backups/voice/YYYY-MM-DD/` on the Mac (30-day rotation, sanity-checks the catalog parses + has ≥5 people before pruning).
 
 `transcribe_single.py` uses WhisperX `large-v3` with post-processing `dedupe_segments()` to strip hallucinated repeated segments. Also extracts ECAPA-TDNN voice embeddings per speaker. LLM inference (classification + speaker ID + insights) runs on ollama-box (192.168.0.70), completely separate from the Ubuntu transcription GPU.
 
