@@ -462,9 +462,13 @@ if __name__ == "__main__":
         print(f"  Already confirmed for {uuid} — re-applying")
         speaker_map = mappings[uuid]["mappings"]
     else:
-        # Look up attendees + category from KB meeting file
+        # Look up attendees + category + matched calendar event title from
+        # the KB meeting file. The matched_event title is the strongest
+        # possible identification cue when it literally names the parties
+        # (e.g. "Alex & Eoin Catch up", "eoin <> declan").
         attendees = []
         category = ""
+        matched_event = ""
         if os.path.exists(KB_MEETINGS_DIR):
             for fname in os.listdir(KB_MEETINGS_DIR):
                 fpath = os.path.join(KB_MEETINGS_DIR, fname)
@@ -472,11 +476,13 @@ if __name__ == "__main__":
                     with open(fpath, errors="replace") as f:
                         kb_content = f.read()
                     if f"source_file: {uuid}" in kb_content:
-                        # Extract category from frontmatter
                         cm = re.search(r'^category:\s*(\S+)', kb_content, re.MULTILINE)
                         if cm:
                             category = cm.group(1).strip()
-                        # Extract **Attendees:** bullet list (from calendar)
+                        # Audit-trail field added 2026-04-28 — calendar canon
+                        em = re.search(r'^matched_event:\s*"([^"]+)"', kb_content, re.MULTILINE)
+                        if em:
+                            matched_event = em.group(1).strip()
                         am = re.search(r'\*\*Attendees:\*\*\s*\n((?:- .+\n?)+)', kb_content)
                         if am:
                             attendees = [re.sub(r'^- ', '', l).strip()
@@ -564,9 +570,31 @@ if __name__ == "__main__":
             #   - name-call cues (X addressed Y → X is not Y)
             #   - self-intro validation against invite list (defends against
             #     "Karl Bellews" / "David Spurley" Whisper hallucinations)
+            #   - calendar event title (catches title-named 1-on-1s like
+            #     "Alex & Eoin Catch up", "eoin <> declan")
             all_attendees = [a.strip() for a in key_people.split(",") if a.strip()]
             cues = extract_name_cues(content, all_attendees, category)
             cues += extract_self_intros(content, all_attendees, category)
+            # Title-based cues: when the matched calendar event title
+            # contains attendee names, that's a strong signal — especially
+            # for 1-on-1s. Surface as a HARD CONSTRAINT for any attendee
+            # whose first name appears in the title.
+            if matched_event and all_attendees:
+                title_lower = matched_event.lower()
+                title_named = []
+                for a in all_attendees:
+                    first = a.split()[0].lower() if a.strip() else ""
+                    if first and len(first) > 2 and re.search(
+                            r"\b" + re.escape(first) + r"\b", title_lower):
+                        title_named.append(a)
+                if title_named:
+                    cues.insert(0, (
+                        f"HARD CONSTRAINT (calendar title): the matched "
+                        f"calendar event is titled \"{matched_event}\" which "
+                        f"explicitly names {', '.join(title_named)} — these "
+                        f"speakers ARE present in the recording with very "
+                        f"high probability."
+                    ))
             cues_section = ""
             if cues:
                 cues_section = "\nSpeaker constraints derived from transcript:\n" + "\n".join(f"- {c}" for c in cues)
@@ -584,6 +612,7 @@ Eoin Lane is almost always one of the speakers — he recorded these on his iPho
 Your job: map each SPEAKER_XX label to a real person's full name.
 
 Rules:
+- The "Meeting title (from calendar)" is canonical. If the title literally names someone (e.g. "Alex & Eoin Catch up", "eoin <> declan"), those people ARE in the meeting — bias your IDs strongly toward them. The transcript's speaker labels and voice scores can be wrong; the calendar title is set by humans.
 - Use context clues: people addressing each other by name, self-introductions, role descriptions, subject matter
 - "Owen Lane" in transcript = Eoin Lane (transcription mishearing)
 - "Cahal" = Cathal (transcription mishearing)
@@ -605,7 +634,9 @@ Respond with ONLY a JSON object (include ALL speaker labels, even already-identi
 }}"""
 
             sample = content[:8000]
-            USER_PROMPT = f"""Confirmed attendees in this meeting: {key_people if key_people else 'unknown'}
+            title_line = (f"Meeting title (from calendar): \"{matched_event}\"\n"
+                          if matched_event else "")
+            USER_PROMPT = f"""{title_line}Confirmed attendees in this meeting: {key_people if key_people else 'unknown'}
 Speaker labels present: {', '.join(speakers)}{voice_note}
 {cues_section}
 Transcript:
