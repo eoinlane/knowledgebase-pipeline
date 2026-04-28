@@ -264,6 +264,156 @@ def extract_name_cues(content, attendees, category):
     return cues
 
 
+def extract_self_intros(content, attendees, category):
+    """Find self-introduction patterns ("I'm X", "my name is X", "this is X")
+    and validate the introduced name against the calendar invite list.
+    Returns a list of constraint strings for the LLM prompt.
+
+    Defends against WhisperX hallucinations like "Karl Bellews" (Cathal Bellew)
+    or "David Spurley" (David Spurway) — when someone "introduces" themselves
+    as a name that's not on the invite, we surface the closest invitee match
+    so the LLM doesn't take the transcription at face value.
+
+    Match priority per intro (first hit wins):
+      1. Exact match → HARD CONSTRAINT
+      2. Name expansion (per-category mishearing table) hits an invitee → HINT
+      3. Unique first-name match against an invitee → HINT (likely surname mishearing)
+      4. Fuzzy SequenceMatcher ratio ≥ 0.7 against an invitee → HINT
+      5. None of the above + intro is >= 4 chars → NOTE (external/error)
+    """
+    if not attendees:
+        return []
+
+    expansions = CATEGORY_NAME_EXPANSIONS.get(category, {})
+    attendee_lookup = {a.lower(): a for a in attendees}
+    first_name_map = {}
+    for a in attendees:
+        toks = a.lower().split()
+        if toks:
+            first_name_map.setdefault(toks[0], []).append(a)
+
+    # Pattern A: explicit triggers — "I'm X" / "my name is X" / "this is X"
+    PAT_EXPLICIT = re.compile(
+        r"\[(SPEAKER_\d+)\][^\n]*?\b(?:i'?m|i am|my name is|this is)\s+"
+        r"([A-Za-z][\w']+(?:\s+[A-Za-z][\w']+){0,2})",
+        re.IGNORECASE,
+    )
+
+    # Pattern B: round-table "Name, Role" introductions with a job-title
+    # keyword to anchor against random commas. Catches the common pattern
+    # where Whisper drops the "I'm" — e.g. "Karl Bellews, AI Business Analyst".
+    ROLE_RE = (
+        r"(?:director|head|ceo|cto|cfo|coo|chair|manager|analyst|architect|"
+        r"executive|coordinator|consultant|officer|associate|partner|engineer|"
+        r"developer|founder|principal|lead|advisor|adviser|chief|professor|"
+        r"lecturer|adjunct|surveyor|controller|specialist|strategist|"
+        r"researcher|scientist|owner|president|deputy|secretary|treasurer|"
+        r"liaison|representative|supervisor|administrator|technician)"
+    )
+    PAT_NAME_ROLE = re.compile(
+        r"\[(SPEAKER_\d+)\][^\n]*?[-–:]\s*"
+        r"([A-Za-z][\w']+(?:\s+[A-Za-z][\w']+){0,2}),\s+"
+        r"(?:[\w'\-]+\s+){0,4}?" + ROLE_RE,
+        re.IGNORECASE,
+    )
+
+    cues = []
+    seen = set()
+
+    matches = list(PAT_EXPLICIT.finditer(content)) + list(PAT_NAME_ROLE.finditer(content))
+    for m in matches:
+        label = m.group(1)
+        intro = m.group(2).strip()
+        intro_lower = intro.lower()
+        first_word = intro_lower.split()[0]
+        key = (label, intro_lower)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # 1. Exact match against an invitee
+        if intro_lower in attendee_lookup:
+            cues.append(
+                f"HARD CONSTRAINT (self-intro): {label} introduced as "
+                f"\"{intro}\" which matches invitee "
+                f"{attendee_lookup[intro_lower]} — therefore {label} = "
+                f"{attendee_lookup[intro_lower]}"
+            )
+            continue
+
+        # 2. Name expansion → invitee
+        expansion = expansions.get(first_word)
+        if expansion and expansion.lower() in attendee_lookup:
+            cues.append(
+                f"HINT (self-intro mishearing): {label} said \"I'm {intro}\""
+                f" — this is the known mishearing of invitee {expansion} "
+                f"(per the {category} name-expansion table). {label} = "
+                f"{expansion}."
+            )
+            continue
+
+        # 3. Unique first-name match against an invitee
+        candidates = first_name_map.get(first_word, [])
+        if len(candidates) == 1:
+            cues.append(
+                f"HINT (self-intro mishearing): {label} said \"I'm {intro}\""
+                f" — first name matches invitee {candidates[0]} (likely "
+                f"transcription mishearing of full surname). {label} = "
+                f"{candidates[0]}."
+            )
+            continue
+
+        # 4. Fuzzy SequenceMatcher match
+        from difflib import SequenceMatcher
+        best = max(
+            ((a, SequenceMatcher(None, intro_lower, a.lower()).ratio())
+             for a in attendees),
+            key=lambda x: x[1],
+        )
+        if best[1] >= 0.7:
+            cues.append(
+                f"HINT (self-intro mishearing): {label} said \"I'm {intro}\""
+                f" — fuzzy-matches invitee {best[0]} (similarity "
+                f"{best[1]:.2f}). Likely transcription error; {label} = "
+                f"{best[0]}."
+            )
+            continue
+
+        # 5. No match — flag as external participant or transcription error.
+        # Strict gate to avoid false positives from common phrases like
+        # "I'm the executive" / "I'm just saying" / "I'm jumping ahead":
+        #   - first letter MUST be capitalised in the original transcript
+        #     (Whisper preserves case for proper nouns; common words stay
+        #     lowercase mid-sentence)
+        #   - intro is at least 4 chars and ≥2 words
+        #   - first word not in a small filler-words denylist (belt-and-braces)
+        FILLER_FIRST_WORDS = {
+            "Sure", "Just", "Sorry", "Going", "Looking", "Afraid", "Trying",
+            "Happy", "Really", "Actually", "Still", "Fine", "Good", "Well",
+            "Right", "Very", "Here", "There", "Thinking", "Talking", "Working",
+            "Doing", "Saying", "Telling", "Kind", "Sort", "Always", "Never",
+            "Hoping", "Glad", "Almost", "About", "Around", "Back", "Done",
+            "Free", "From", "Fully", "With", "Without", "Ready", "Also",
+            "Only", "More", "Much",
+        }
+        first_word_orig = intro.split()[0]
+        if (
+            intro[:1].isupper()                 # capitalised proper-noun signal
+            and len(intro) >= 4
+            and " " in intro
+            and first_word_orig not in FILLER_FIRST_WORDS
+        ):
+            cues.append(
+                f"NOTE (unrecognised self-intro): {label} introduced as "
+                f"\"{intro}\" but no invitee with that name. Could be an "
+                f"external participant joined via the meeting link, OR a "
+                f"transcription error. Don't blindly trust this name — "
+                f"prefer matching against the invitee list using other cues."
+            )
+
+    return cues
+
+
 def expand_names(names_str, category):
     """Expand short/informal names to full names using category context."""
     expansions = CATEGORY_NAME_EXPANSIONS.get(category, {})
@@ -410,9 +560,13 @@ if __name__ == "__main__":
             speaker_map = voice_matches
         else:
             # ── LLM identification for unmatched speakers ──────────────────────────
-            # Extract name-call cues from full transcript
+            # Extract constraints from the transcript:
+            #   - name-call cues (X addressed Y → X is not Y)
+            #   - self-intro validation against invite list (defends against
+            #     "Karl Bellews" / "David Spurley" Whisper hallucinations)
             all_attendees = [a.strip() for a in key_people.split(",") if a.strip()]
             cues = extract_name_cues(content, all_attendees, category)
+            cues += extract_self_intros(content, all_attendees, category)
             cues_section = ""
             if cues:
                 cues_section = "\nSpeaker constraints derived from transcript:\n" + "\n".join(f"- {c}" for c in cues)

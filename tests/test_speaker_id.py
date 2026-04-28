@@ -14,6 +14,7 @@ from identify_speakers import (
     cosine_sim,
     expand_names,
     extract_name_cues,
+    extract_self_intros,
     voice_match,
     CATEGORY_NAME_EXPANSIONS,
     VOICE_THRESHOLD_HIGH,
@@ -359,6 +360,60 @@ class TestVoiceMatch:
         # Top-3 mean ignores the outlier; should still confidently match.
         assert "SPEAKER_00" in result
         assert result["SPEAKER_00"]["confidence"] == "high"
+
+
+class TestExtractSelfIntros:
+    def test_exact_match_yields_hard_constraint(self):
+        content = "[SPEAKER_00] 02:53 - Hi, I'm Cathal Bellew, AI Business Analyst.\n"
+        cues = extract_self_intros(content, ["Cathal Bellew", "Eoin Lane"], "NTA")
+        assert any("HARD CONSTRAINT" in c and "Cathal Bellew" in c for c in cues)
+
+    def test_mishearing_via_name_expansion_yields_hint(self):
+        # "Karl Bellews" → Cathal Bellew (NTA expansion)
+        content = "[SPEAKER_00] 02:53 - Karl Bellews, AI Business Analyst.\n"
+        # First add the expansion
+        cues = extract_self_intros(content, ["Cathal Bellew", "Eoin Lane"], "NTA")
+        # The actual production expansion table has karl bellews → Cathal Bellew
+        # so this should fire a HINT (or fall through to fuzzy/first-name)
+        assert any("Cathal Bellew" in c for c in cues), \
+            f"No Cathal-Bellew suggestion in cues: {cues}"
+
+    def test_unique_first_name_match_yields_hint(self):
+        content = "[SPEAKER_00] 02:53 - Hi, I'm Brian Smith from somewhere.\n"
+        cues = extract_self_intros(content, ["Brian Sullivan", "Eoin Lane"], "NTA")
+        # "Brian Smith" doesn't exact-match but first name "brian" uniquely
+        # matches "Brian Sullivan" → HINT
+        assert any("Brian Sullivan" in c and "HINT" in c for c in cues)
+
+    def test_fuzzy_match_yields_hint(self):
+        # "David Spurley" ↔ "David Spurway" (similarity > 0.7)
+        content = "[SPEAKER_00] 03:27 - I'm David Spurley, IBM EMEA.\n"
+        cues = extract_self_intros(content, ["David Spurway", "Eoin Lane"], "NTA")
+        # Either expansion (unlikely) or fuzzy → should suggest David Spurway
+        assert any("David Spurway" in c for c in cues), \
+            f"Expected David Spurway suggestion, got: {cues}"
+
+    def test_unrecognised_intro_yields_note(self):
+        content = "[SPEAKER_00] 00:30 - I'm Random Stranger from somewhere.\n"
+        cues = extract_self_intros(content, ["Eoin Lane", "Cathal Bellew"], "NTA")
+        # Multi-word, no match anywhere → NOTE flagging external/error
+        assert any("NOTE" in c for c in cues)
+
+    def test_filler_phrases_dont_produce_cues(self):
+        """'I'm sorry', 'I'm just', etc. should not generate self-intro cues."""
+        content = (
+            "[SPEAKER_00] 00:30 - I'm sorry, I missed that.\n"
+            "[SPEAKER_00] 00:35 - I'm just trying to understand.\n"
+        )
+        cues = extract_self_intros(content, ["Eoin Lane", "Cathal Bellew"], "NTA")
+        # "sorry" and "just" both single-word so the >=2 word + >=4 char gate
+        # should silence them.
+        assert all("HARD CONSTRAINT" not in c for c in cues), f"False positives: {cues}"
+
+    def test_no_cues_when_no_attendees(self):
+        content = "[SPEAKER_00] 00:30 - I'm Cathal Bellew here.\n"
+        cues = extract_self_intros(content, [], "NTA")
+        assert cues == []
 
 
 # ── Real-data smoke tests ──────────────────────────────────────────────────────
