@@ -61,8 +61,66 @@ def update_registry(registry, name, new_samples, today_str):
     entry["last_seen"] = today_str
 
 
+def _integrity_check(emb, claimed_name, catalog):
+    """Before adding `emb` to `claimed_name`'s catalog, check whether this
+    embedding is actually closer to a DIFFERENT person already in the catalog.
+
+    Returns (status, message):
+        ("ok", None)              — looks fine, append it
+        ("warn", message)         — looks suspicious, prompt user
+        ("dup", message)          — exact byte-match of an existing entry
+
+    Catches the historical failure mode where review_speakers.py confirmed
+    samples that weren't actually the claimed person (e.g. Guy Rackham getting
+    Eoin's voice at sim 0.85, or Declan Sheehan getting Cathal's at 0.77).
+    """
+    import numpy as np
+
+    def cos(a, b):
+        a = np.array(a, dtype=np.float32)
+        b = np.array(b, dtype=np.float32)
+        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+
+    # Cross-person duplicate check
+    for other_name, other in catalog.items():
+        for s in other.get("embeddings", []):
+            if s == emb:
+                if other_name == claimed_name:
+                    return ("dup", f"already in {claimed_name}'s catalog (byte-identical)")
+                return ("warn", f"BYTE-IDENTICAL to a sample in {other_name}'s catalog — corruption likely")
+
+    # Score against everyone, excluding claimed_name's existing samples
+    scores = []
+    for other_name, other in catalog.items():
+        embs = other.get("embeddings", [])
+        if not embs:
+            continue
+        # max-over-samples (matches voice_match's top-3 mean for ≥3, max for <3)
+        sims = sorted((cos(emb, s) for s in embs), reverse=True)
+        score = sum(sims[:3]) / len(sims[:3]) if sims else 0.0
+        scores.append((other_name, score))
+    scores.sort(key=lambda x: -x[1])
+
+    own_score = next((s for n, s in scores if n == claimed_name), None)
+    best_other = next(((n, s) for n, s in scores if n != claimed_name), (None, 0))
+
+    # Suspicious: another person scores significantly higher
+    if best_other[0] and (own_score is None or best_other[1] - (own_score or 0) >= 0.10):
+        return ("warn", (
+            f"this embedding scores {best_other[1]:.2f} against {best_other[0]}"
+            + (f" but only {own_score:.2f} against {claimed_name}"
+               if own_score is not None else f" (no existing {claimed_name} samples to compare)")
+            + ". Confirming will likely corrupt the catalog."
+        ))
+
+    return ("ok", None)
+
+
 def update_voice_catalog(uuid, speaker_map, today_str):
-    """Merge confirmed speaker embeddings from this recording into voice_catalog.json."""
+    """Merge confirmed speaker embeddings from this recording into voice_catalog.json.
+    Integrity-checks each candidate before appending — refuses obviously-wrong
+    confirmations unless the user explicitly overrides via env var
+    SKIP_INTEGRITY_CHECK=1."""
     emb_file = os.path.join(EMBEDDINGS_DIR, uuid + ".json")
     if not os.path.exists(emb_file):
         return []
@@ -75,6 +133,7 @@ def update_voice_catalog(uuid, speaker_map, today_str):
         with open(CATALOG_FILE) as f:
             catalog = json.load(f)
 
+    skip_check = os.environ.get("SKIP_INTEGRITY_CHECK") == "1"
     updated = []
     for label, info in speaker_map.items():
         if not info:
@@ -85,6 +144,23 @@ def update_voice_catalog(uuid, speaker_map, today_str):
 
         emb = recording_embs[label]["embedding"]
         n_segs = recording_embs[label]["n_segments"]
+
+        # Integrity check — refuse to enrol obvious mis-attributions
+        if not skip_check:
+            status, msg = _integrity_check(emb, name, catalog)
+            if status != "ok":
+                print(f"  ⚠ Integrity check ({status}) for {label} → {name}: {msg}")
+                if status == "warn":
+                    try:
+                        ans = input(f"    Confirm anyway? (y/N): ").strip().lower()
+                    except EOFError:
+                        ans = "n"
+                    if ans != "y":
+                        print(f"    Skipped {label} → {name} (catalog unchanged).")
+                        continue
+                else:  # dup
+                    print(f"    Skipped {label} → {name} (already present).")
+                    continue
 
         if name not in catalog:
             catalog[name] = {"embeddings": [], "recordings": 0,
