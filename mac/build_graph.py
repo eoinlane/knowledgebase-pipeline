@@ -263,8 +263,86 @@ def build_graph():
     project_tagger = build_owner_project_tagger()
     print(f"  Built project tagger with {len(project_tagger)} owner mappings")
 
+    # Build slug → canonical name map. Lets us normalise stored owner strings
+    # so "Cathal Murphy" (mishearing) and "Cathal" (first-name shorthand) both
+    # display as "Cathal Bellew" in queries. Sources:
+    #   - contacts.db.people.resolved_name (the user/LLM-confirmed canonical)
+    #   - contacts.db.people.name (fallback)
+    # Multi-word names take precedence over single-word — so "Cathal" maps to
+    # the slug "cathal-bellew" and we display "Cathal Bellew", not "Cathal".
+    slug_to_canonical = {}
+    if CONTACTS_DB.exists():
+        _conn = sqlite3.connect(CONTACTS_DB)
+        # Group by slug; pick the longest canonical name (proxy for "fullest")
+        rows = _conn.execute("""
+            SELECT COALESCE(resolved_slug, slug) AS s,
+                   COALESCE(resolved_name, name) AS n
+            FROM people
+            WHERE COALESCE(resolved_slug, slug) IS NOT NULL
+        """).fetchall()
+        _conn.close()
+        for s, n in rows:
+            # Strip junk that crept in via earlier builds: surrounding quote
+            # chars, asterisks, square brackets. These come from CSV/LLM
+            # output that was never sanitised on insert.
+            n = n.strip().strip("'\"`*[]").strip()
+            if not n:
+                continue
+            existing = slug_to_canonical.get(s)
+            # Prefer the longer name (proxy for "fullest"), but always prefer
+            # a multi-word name over a single-word one regardless of length.
+            if not existing:
+                slug_to_canonical[s] = n
+            elif " " in n and " " not in existing:
+                slug_to_canonical[s] = n
+            elif (" " in n) == (" " in existing) and len(n) > len(existing):
+                slug_to_canonical[s] = n
+    print(f"  Built canonical-name map with {len(slug_to_canonical)} slugs")
+
     stats = {"meetings": 0, "actions": 0, "decisions": 0, "edges": 0, "matched": 0,
-             "insights_people": 0, "transcript_people": 0, "project_retagged": 0}
+             "insights_people": 0, "transcript_people": 0, "project_retagged": 0,
+             "phantom_owners_dropped": 0}
+
+    # Build set of valid owner slugs once. An owner is valid if (a) it
+    # resolves to a known person via the resolver (which already handles
+    # mishearings, first-name → full-name, etc.) — but for the per-meeting
+    # gate we also accept owners that match this meeting's attendees, even
+    # if the resolver doesn't know them (a brand-new attendee may not yet
+    # be in contacts.db). Below the loop, the resolver path covers the
+    # global case; this set isn't built up-front because attendees vary
+    # per meeting.
+    # Mishearings of Eoin Lane — he's the recorder and always valid, but
+    # WhisperX renders him as Owen/Eoghan. The CSV-side normaliser in
+    # build_knowledge_base.py catches new builds; this catches historical
+    # action items still floating in old insights JSONs.
+    EOIN_VARIANTS = {"owen-lane", "eoghan-lane", "owen-layne", "eoin-layne",
+                     "eoghan-layne", "owen", "eoghan"}
+
+    def _gate_owner(owner_str, meeting_attendees):
+        """Returns (resolved_slug or None, owner_to_store_or_None).
+        - If owner resolves via the global resolver: keep the slug, normalise
+          the displayed name to the canonical form from contacts.db (so
+          "Cathal Murphy" → "Cathal Bellew", "Kizzer" → "Khizer Ahmed Biyabani").
+        - Else if owner slug-matches a meeting attendee: keep both as-is.
+        - Else: drop the owner entirely (set to None) and bump the stat.
+        Eoin Lane is always valid."""
+        if not owner_str:
+            return None, None
+        owner_slug = slugify(owner_str)
+        if owner_slug == "eoin-lane" or owner_slug in EOIN_VARIANTS:
+            return "eoin-lane", "Eoin Lane"
+        resolved = resolve_person_slug(owner_slug, resolver)
+        if resolved:
+            canonical = slug_to_canonical.get(resolved, owner_str)
+            return resolved, canonical
+        # Per-meeting fallback: owner matches an attendee slug exactly.
+        # Use the attendee's actual name (cased), not the LLM's casing.
+        for a in meeting_attendees:
+            if slugify(a) == owner_slug:
+                return owner_slug, a
+        # No match → phantom (Karl Bellews, "Sure", "John Codeson", etc.)
+        stats["phantom_owners_dropped"] += 1
+        return None, None
 
     for md_path in md_files:
         fm, body = parse_frontmatter_and_body(md_path)
@@ -336,15 +414,22 @@ def build_graph():
             for ai in insights.get("action_items", []):
                 if isinstance(ai, dict):
                     text = ai.get("action", "")
-                    owner = ai.get("owner", "").strip("[]")
+                    raw_owner = ai.get("owner", "").strip("[]")
                 else:
                     text = str(ai)
-                    owner = ""
+                    raw_owner = ""
 
                 if not text:
                     continue
 
-                # Determine project: owner's category if known, else meeting category
+                # Gate the owner against known people + this meeting's attendees.
+                # Phantom names (LLM hallucinations like "Karl Bellews", "Sure",
+                # or stale mishearings like "Owen Lane") get dropped here so
+                # they never become first-class graph entities.
+                owner_slug, owner = _gate_owner(raw_owner, attendees)
+
+                # Project tagging uses the original owner text (handles "Cathal" →
+                # NTA, even before resolver maps to "cathal-bellew")
                 project = project_tagger.get(owner.lower(), "") if owner else ""
                 if not project:
                     project = category
@@ -362,12 +447,10 @@ def build_graph():
                 add_edge(conn, "meeting", meeting_filename, "PRODUCED", "action_item", str(ai_id))
                 stats["edges"] += 1
 
-                # action_item ASSIGNED_TO person
-                if owner:
-                    owner_slug = resolve_person_slug(slugify(owner), resolver)
-                    if owner_slug:
-                        add_edge(conn, "action_item", str(ai_id), "ASSIGNED_TO", "person", owner_slug)
-                        stats["edges"] += 1
+                # action_item ASSIGNED_TO person — only when the gate resolved a slug
+                if owner_slug:
+                    add_edge(conn, "action_item", str(ai_id), "ASSIGNED_TO", "person", owner_slug)
+                    stats["edges"] += 1
 
             # Store decisions (inherit project from meeting category)
             for dec_text in insights.get("decisions", []):
@@ -383,7 +466,7 @@ def build_graph():
                 add_edge(conn, "meeting", meeting_filename, "PRODUCED", "decision", str(dec_id))
                 stats["edges"] += 1
 
-            # Store follow-ups as edges back to the meeting
+            # Store follow-ups as edges back to the meeting (gated like action items)
             for fu in insights.get("follow_ups", []):
                 if isinstance(fu, dict):
                     desc = fu.get("description", "")
@@ -392,7 +475,7 @@ def build_graph():
                     desc = str(fu)
                     who = ""
                 if desc and who:
-                    who_slug = resolve_person_slug(slugify(who), resolver)
+                    who_slug, _ = _gate_owner(who, attendees)
                     if who_slug:
                         add_edge(conn, "person", who_slug, "FOLLOW_UP", "meeting", meeting_filename, confidence=0.8)
                         stats["edges"] += 1
@@ -520,6 +603,8 @@ def build_graph():
     print(f"  {docs_count} documents indexed")
     print(f"  People enrichment: {stats['insights_people']} from insights, {stats['transcript_people']} from transcript scan")
     print(f"  Project tagging: {stats['project_retagged']} action items retagged by owner")
+    if stats["phantom_owners_dropped"]:
+        print(f"  Phantom owners dropped: {stats['phantom_owners_dropped']} (LLM-hallucinated names not in roster or attendees)")
 
 
 if __name__ == "__main__":
