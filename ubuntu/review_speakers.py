@@ -8,19 +8,25 @@ After confirming a mapping:
   - Marks mapping as confirmed in speaker_mappings.json
   - Extracts speech samples into speaker_registry.json (used by future identifications)
 
-Usage: python3 review_speakers.py [--all]
-  --all   show already-confirmed mappings too
+Usage:
+  python3 review_speakers.py                  # iterate all unconfirmed
+  python3 review_speakers.py --all            # include confirmed
+  python3 review_speakers.py --prioritised    # top 5 highest-impact (defaults)
+  python3 review_speakers.py --prioritised -n 10
 """
 
+import argparse
 import json, os, sys, re
 import numpy as np
-from datetime import date
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 MAPPINGS_FILE  = os.path.expanduser("~/speaker_mappings.json")
 REGISTRY_FILE  = os.path.expanduser("~/speaker_registry.json")
 CATALOG_FILE   = os.path.expanduser("~/voice_catalog.json")
 EMBEDDINGS_DIR = os.path.expanduser("~/audio-inbox/Embeddings")
 TRANS_DIR      = os.path.expanduser("~/audio-inbox/Transcriptions")
+CAL_DIR        = os.path.expanduser("~/.local/share/kb/calendars")
 
 MAX_CATALOG_EMBEDDINGS = 20  # rolling window per person
 
@@ -182,6 +188,179 @@ def update_voice_catalog(uuid, speaker_map, today_str):
     return updated
 
 
+# ── Prioritised review helpers ──────────────────────────────────────────────
+
+def _cos(a, b):
+    a = np.array(a, dtype=np.float32)
+    b = np.array(b, dtype=np.float32)
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+
+
+def _top_k_score(emb, samples, k=3):
+    if not samples:
+        return 0.0
+    sims = sorted((_cos(emb, s) for s in samples), reverse=True)
+    return sum(sims[:k]) / len(sims[:k])
+
+
+def voice_scores_against_catalog(emb, catalog, top_n=3):
+    """Return top-N (name, score) tuples for an embedding."""
+    scored = [(n, _top_k_score(emb, d.get("embeddings", [])))
+              for n, d in catalog.items() if d.get("embeddings")]
+    scored.sort(key=lambda x: -x[1])
+    return scored[:top_n]
+
+
+def distinctive_utterances(transcript, label, max_n=3):
+    """Pull the longest non-filler utterances for `label` (or `label?`).
+    Used to give a reviewer enough context to recognise a speaker."""
+    pat = re.compile(r"^\[" + re.escape(label) + r"\??\]\s+\d+:\d+\s+-\s+(.+)")
+    lines = []
+    for line in transcript.splitlines():
+        m = pat.match(line)
+        if not m:
+            continue
+        text = m.group(1).strip()
+        if len(text) >= 30 and not re.match(r"^(uh+|um+|yeah|okay|right|mm+|no+|yes|so)\b", text, re.I):
+            lines.append(text)
+    lines.sort(key=len, reverse=True)
+    return lines[:max_n]
+
+
+def find_calendar_event(uuid, recorded_at, window_min=15):
+    """Return the closest calendar event within ±window_min, or None."""
+    if not os.path.isdir(CAL_DIR):
+        return None
+    target = recorded_at
+    months = {"January":1,"February":2,"March":3,"April":4,"May":5,"June":6,
+              "July":7,"August":8,"September":9,"October":10,"November":11,"December":12}
+    best = (None, timedelta(minutes=window_min + 1))
+    for fname in sorted(os.listdir(CAL_DIR)):
+        if not fname.endswith(".txt"):
+            continue
+        try:
+            text = open(os.path.join(CAL_DIR, fname)).read()
+        except Exception:
+            continue
+        for block in text.split("---\n"):
+            t = re.search(r"^TITLE: (.+)$", block, re.MULTILINE)
+            s = re.search(r"^START: (.+)$", block, re.MULTILINE)
+            a = re.search(r"^ATTENDEES: (.+)$", block, re.MULTILINE)
+            if not (t and s):
+                continue
+            sm = re.match(r"\w+ (\d{1,2}) (\w+) (\d{4}) at (\d{2}):(\d{2}):(\d{2})", s.group(1).strip())
+            if not sm or sm.group(2) not in months:
+                continue
+            cal_ts = datetime(int(sm.group(3)), months[sm.group(2)], int(sm.group(1)),
+                              int(sm.group(4)), int(sm.group(5)), int(sm.group(6)))
+            delta = abs(cal_ts - target)
+            if delta < best[1] and delta <= timedelta(minutes=window_min):
+                attendees = [x.strip() for x in (a.group(1).split("|") if a else [])]
+                best = ({"title": t.group(1).strip(), "ts": cal_ts, "attendees": attendees}, delta)
+    return best[0]
+
+
+def recording_timestamp(uuid):
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})_(\d{2})_(\d{2})_(\d{2})", uuid)
+    if m:
+        return datetime(*[int(x) for x in m.groups()])
+    p = os.path.join(TRANS_DIR, uuid + ".txt")
+    if os.path.exists(p):
+        for line in open(p, errors="replace").read().splitlines()[:5]:
+            m = re.match(r"Recorded: (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})", line)
+            if m:
+                return datetime(*[int(x) for x in m.groups()])
+    return None
+
+
+def impact_score(uuid, speaker_map, embedding_data, catalog):
+    """High score = much to gain from reviewing this recording.
+    Reward: many segments × low confidence × catalog cold-start."""
+    score = 0
+    for label, info in speaker_map.items():
+        n_segs = embedding_data.get(label, {}).get("n_segments", 0)
+        if n_segs < 5:
+            continue
+        if info is None:
+            score += n_segs * 2          # unidentified — high value
+            continue
+        conf = info.get("confidence", "low")
+        if conf == "high":
+            score += 1                   # already confident — low value
+        elif conf == "medium":
+            score += n_segs              # mediums are most flippable
+        else:
+            score += n_segs * 1.5
+        # Bonus if claimed name has 0–1 catalog samples (cold-start fix opportunity)
+        name = info.get("name", "")
+        if name and len(catalog.get(name, {}).get("embeddings", [])) <= 1:
+            score += 10
+    return score
+
+
+def render_prioritised(uuid, data, catalog, n_idx, n_total):
+    """Enhanced display: calendar event, per-speaker voice top-3, sample lines."""
+    speaker_map = data.get("mappings", {}) or {}
+    print(f"{'═' * 72}")
+    print(f"[{n_idx}/{n_total}] Recording: {uuid}")
+
+    # Calendar event
+    ts = recording_timestamp(uuid)
+    if ts:
+        ev = find_calendar_event(uuid, ts)
+        if ev:
+            print(f"  Calendar: \"{ev['title']}\" @ {ev['ts'].strftime('%Y-%m-%d %H:%M')}")
+            if ev.get("attendees"):
+                print(f"  Invitees: {', '.join(ev['attendees'])}")
+        else:
+            print(f"  Recorded: {ts.strftime('%Y-%m-%d %H:%M')} (no calendar match)")
+
+    # Embeddings + transcript
+    emb_path = os.path.join(EMBEDDINGS_DIR, uuid + ".json")
+    rec_embs = json.load(open(emb_path)) if os.path.exists(emb_path) else {}
+    txt_path = os.path.join(TRANS_DIR, uuid + ".txt")
+    transcript = open(txt_path).read() if os.path.exists(txt_path) else ""
+
+    print()
+    for label in sorted(speaker_map.keys()):
+        info = speaker_map[label]
+        n_segs = rec_embs.get(label, {}).get("n_segments", 0)
+        if info:
+            marker = "" if info.get("confidence") == "high" else "?"
+            current = f"{info['name']}{marker} [{info.get('confidence','?')}]"
+        else:
+            current = "(unidentified)"
+        print(f"  {label} ({n_segs} segs)  → {current}")
+
+        # Voice top-3 against full catalog
+        if rec_embs.get(label, {}).get("embedding"):
+            tops = voice_scores_against_catalog(rec_embs[label]["embedding"], catalog)
+            top_str = ", ".join(f"{n}={s:.2f}" for n, s in tops)
+            print(f"      voice top-3: {top_str}")
+
+        # Sample utterances
+        if transcript:
+            samples = distinctive_utterances(transcript, label)
+            if samples:
+                print(f"      utterances:")
+                for s in samples:
+                    print(f"        • {s[:120]}")
+        print()
+
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
+ap = argparse.ArgumentParser(add_help=False)
+ap.add_argument("--all", action="store_true")
+ap.add_argument("--prioritised", action="store_true")
+ap.add_argument("-n", type=int, default=5, help="top-N for --prioritised")
+ap.add_argument("-h", "--help", action="store_true")
+args, _ = ap.parse_known_args()
+
+if args.help:
+    print(__doc__)
+    sys.exit(0)
+
 if not os.path.exists(MAPPINGS_FILE):
     print("No speaker_mappings.json found — no speakers identified yet.")
     sys.exit(0)
@@ -189,15 +368,34 @@ if not os.path.exists(MAPPINGS_FILE):
 with open(MAPPINGS_FILE) as f:
     mappings = json.load(f)
 
-show_all = "--all" in sys.argv
 candidates = {
     k: v for k, v in mappings.items()
-    if show_all or not v.get("confirmed")
+    if args.all or not v.get("confirmed")
 }
 
 if not candidates:
     print("All mappings confirmed! Use --all to review confirmed ones.")
     sys.exit(0)
+
+# Prioritised mode: rank candidates by impact, take top N
+if args.prioritised:
+    catalog = json.load(open(CATALOG_FILE)) if os.path.exists(CATALOG_FILE) else {}
+    scored = []
+    for uuid, data in candidates.items():
+        sm = data.get("mappings", {}) or {}
+        emb_path = os.path.join(EMBEDDINGS_DIR, uuid + ".json")
+        rec_embs = json.load(open(emb_path)) if os.path.exists(emb_path) else {}
+        if not rec_embs:
+            continue
+        scored.append((impact_score(uuid, sm, rec_embs, catalog), uuid, data))
+    scored.sort(key=lambda x: -x[0])
+    top = scored[:args.n]
+    candidates = dict((u, d) for _, u, d in top)
+    print(f"\nPrioritised review — top {len(candidates)} highest-impact recording(s):\n")
+    # Print the ranking summary first so user knows the queue
+    for i, (sc, u, _) in enumerate(top, 1):
+        print(f"  {i}. {u}  (impact score: {sc})")
+    print()
 
 print(f"\n{'=' * 60}")
 print(f"Speaker Mapping Review — {len(candidates)} recording(s) to review")
@@ -206,35 +404,41 @@ print(f"{'=' * 60}\n")
 
 changed = False
 
-for uuid, data in list(candidates.items()):
+# Loaded once for prioritised rendering
+_render_catalog = None
+if args.prioritised and os.path.exists(CATALOG_FILE):
+    _render_catalog = json.load(open(CATALOG_FILE))
+
+for n_idx, (uuid, data) in enumerate(candidates.items(), 1):
     speaker_map = data.get("mappings", {})
     hint = data.get("key_people_hint", "")
     confirmed = data.get("confirmed", False)
-
-    print(f"Recording: {uuid}")
-    if hint:
-        print(f"Key people (from classification): {hint}")
-    print(f"Status: {'✓ confirmed' if confirmed else 'unconfirmed'}")
-    print("Mappings:")
-    for label, info in speaker_map.items():
-        if info:
-            marker = "" if info.get("confidence") == "high" else "?"
-            print(f"  {label:12s} → {info['name']}{marker}  [{info['confidence']}]")
-        else:
-            print(f"  {label:12s} → (unidentified)")
-
-    # Peek at transcript if available
     txt_path = os.path.join(TRANS_DIR, uuid + ".txt")
-    if os.path.exists(txt_path):
-        with open(txt_path) as f:
-            lines = [l for l in f.readlines() if not l.startswith(("File:", "Recorded:", "-"))]
-        preview = "".join(lines[:6]).strip()
-        if preview:
-            print(f"\nTranscript preview:")
-            for line in preview.splitlines()[:6]:
-                print(f"  {line}")
 
-    print()
+    if args.prioritised:
+        render_prioritised(uuid, data, _render_catalog or {}, n_idx, len(candidates))
+    else:
+        print(f"Recording: {uuid}")
+        if hint:
+            print(f"Key people (from classification): {hint}")
+        print(f"Status: {'✓ confirmed' if confirmed else 'unconfirmed'}")
+        print("Mappings:")
+        for label, info in speaker_map.items():
+            if info:
+                marker = "" if info.get("confidence") == "high" else "?"
+                print(f"  {label:12s} → {info['name']}{marker}  [{info['confidence']}]")
+            else:
+                print(f"  {label:12s} → (unidentified)")
+
+        if os.path.exists(txt_path):
+            with open(txt_path) as f:
+                lines = [l for l in f.readlines() if not l.startswith(("File:", "Recorded:", "-"))]
+            preview = "".join(lines[:6]).strip()
+            if preview:
+                print(f"\nTranscript preview:")
+                for line in preview.splitlines()[:6]:
+                    print(f"  {line}")
+        print()
     cmd = input("Action [y/e/s/q]: ").strip().lower()
 
     if cmd == 'q':
