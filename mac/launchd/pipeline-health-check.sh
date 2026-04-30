@@ -1,14 +1,34 @@
 #!/bin/bash
 # pipeline-health-check.sh
 # Runs hourly via launchd. Sends a macOS notification if the pipeline looks stuck.
+#
+# Flags:
+#   -v / --verbose   Mirror log lines to stdout (useful for manual diagnostics)
+#   --summary        Skip alerts, just print one-line summary at end (for ssh/cron)
 
 UBUNTU="eoin@nvidiaubuntubox"
 LOG="/Users/eoin/.local/bin/pipeline-health-check.log"
 
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S'): $*" >> "$LOG"; }
+VERBOSE=0
+SUMMARY_ONLY=0
+for arg in "$@"; do
+    case "$arg" in
+        -v|--verbose) VERBOSE=1 ;;
+        --summary) SUMMARY_ONLY=1; VERBOSE=1 ;;
+    esac
+done
+
+log() {
+    local line
+    line="$(date '+%Y-%m-%d %H:%M:%S'): $*"
+    echo "$line" >> "$LOG"
+    [ "$VERBOSE" -eq 1 ] && echo "$line"
+}
 alert() {
     local title="$1" msg="$2"
-    osascript -e "display notification \"$msg\" with title \"Pipeline Alert\" subtitle \"$title\" sound name \"Basso\"" 2>/dev/null
+    if [ "$SUMMARY_ONLY" -eq 0 ]; then
+        osascript -e "display notification \"$msg\" with title \"Pipeline Alert\" subtitle \"$title\" sound name \"Basso\"" 2>/dev/null
+    fi
     log "ALERT — $title: $msg"
 }
 
@@ -21,23 +41,22 @@ if ! ssh -o ConnectTimeout=10 -o BatchMode=yes "$UBUNTU" "true" 2>/dev/null; the
     exit 1
 fi
 
-# ── 1b. FreeBSD host reachable? (via Tailscale hostname, works on/off LAN) ───
-if ! ssh -o ConnectTimeout=10 -o BatchMode=yes eoin@freebsd "true" 2>/dev/null; then
-    alert "FreeBSD host unreachable" "Cannot SSH to freebsd — ollama-box VM cannot run"
-fi
-
-# ── 1c. ollama-box responsive? (check via Ubuntu since Mac may be off-LAN) ──
+# ── 1b. ollama-box responsive? (check via Ubuntu since Mac may be off-LAN) ──
+# This is the canonical LLM-availability signal: if the API responds and the
+# expected model is loaded, classifications will work — the underlying VM,
+# GPU, and bhyve host are all implicitly up.
+#
+# Removed 2026-04-30: previous "1b FreeBSD SSH check" (no `eoin@freebsd` SSH
+# alias on this Mac; never resolvable) and "1d GPU VRAM check" (Ubuntu has
+# no SSH key trust to ollama-box at 192.168.0.70 — defaulted to 0 MB and
+# fired "GPU idle" alerts every hour for months). Both were redundant once
+# the API check confirms the model list contains qwen2.5:14b.
 OLLAMA_RESP=$(ssh -o ConnectTimeout=10 -o BatchMode=yes "$UBUNTU" \
     "curl -s --max-time 10 http://192.168.0.70:11434/api/tags" 2>/dev/null)
 if [ -z "$OLLAMA_RESP" ]; then
     alert "ollama-box not responding" "192.168.0.70:11434 unreachable from Ubuntu — classifications will fail"
-fi
-
-# ── 1d. ollama-box GPU in use? ───────────────────────────────────────────────
-OLLAMA_VRAM=$(ssh -o ConnectTimeout=10 -o BatchMode=yes "$UBUNTU" \
-    "ssh -o ConnectTimeout=5 -o BatchMode=yes eoin@192.168.0.70 'nvidia-smi --query-compute-apps=used_memory --format=csv,noheader,nounits 2>/dev/null | awk \"{s+=\\$1} END{print (s+0)}\"'" 2>/dev/null)
-if [ -n "$OLLAMA_RESP" ] && [ "${OLLAMA_VRAM:-0}" -lt 100 ]; then
-    alert "ollama-box GPU idle" "Ollama responding but 0MB VRAM — model may have unloaded"
+elif ! echo "$OLLAMA_RESP" | grep -q "qwen2.5:14b"; then
+    alert "ollama-box model missing" "API responds but qwen2.5:14b not in model list"
 fi
 
 # ── 2. Services running? ──────────────────────────────────────────────────────
