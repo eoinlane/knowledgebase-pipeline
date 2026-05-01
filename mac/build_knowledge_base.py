@@ -396,6 +396,49 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
     rec_dublin = rec_aware.astimezone(DUBLIN_TZ).replace(tzinfo=None)
     voice_names = voice_names or set()
 
+    def _attendee_name_tokens(attendee_str):
+        """Yield candidate name forms for an attendee string. Handles both
+        plain names ("Christopher Kelly") and email-only attendees from
+        Exchange ("allan.mcdonald@dublincity.ie" → "allan mcdonald", "allan",
+        "mcdonald")."""
+        a = attendee_str.strip()
+        if not a or a == "<>":
+            return
+        # Plain name — yield as-is plus last-token (surname)
+        yield a.lower()
+        toks = a.split()
+        if toks:
+            yield toks[-1].lower()
+        # Email form — strip domain, split local part on dots/underscores
+        if "@" in a:
+            local = a.split("@", 1)[0]
+            parts = re.split(r"[._-]+", local)
+            if len(parts) >= 2:
+                yield " ".join(parts).lower()
+                yield parts[-1].lower()
+                yield parts[0].lower()
+            elif parts:
+                yield parts[0].lower()
+
+    def _voice_match_count_for_event(evt, vnames):
+        """How many voice_names match this event's attendees, allowing for
+        email-form attendees (allan.mcdonald@... → matches "Allan McDonald")."""
+        if not vnames:
+            return 0
+        attendees_str = evt.get("ATTENDEES") or ""
+        evt_forms = set()
+        for a in attendees_str.split("|"):
+            for tok in _attendee_name_tokens(a):
+                evt_forms.add(tok)
+        matched = 0
+        for v in vnames:
+            vl = v.lower()
+            vlast = v.split()[-1].lower() if v.split() else ""
+            vfirst = v.split()[0].lower() if v.split() else ""
+            if vl in evt_forms or (vlast and vlast in evt_forms) or (vfirst and vfirst in evt_forms):
+                matched += 1
+        return matched
+
     # Pre-compile the "Eoin & X" / "Eoin <> X" / "X | Eoin" title shape — strong
     # signal that the event is a 1-on-1 whose title literally names both
     # parties. We over-match on purpose; the score is additive, not exclusive.
@@ -461,28 +504,24 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
         # Voice-overlap bonus: dominates timestamp scoring when voices in the
         # room match an event's invitees. Two overlapping events at similar
         # times are otherwise indistinguishable — voice IDs are the only signal
-        # that disambiguates them. Scaling: -40 per matched name (compounds for
-        # 3-5 person meetings; a single match isn't enough to flip a strong
-        # timestamp winner, but ≥2 matches will). Compares last-token (surname)
-        # to handle "Khizer" vs "Khizer Ahmed Biyabani" form differences.
+        # that disambiguates them.
+        #
+        # Scoring is matches × coverage_ratio × −50:
+        #   - matches = how many confirmed voices appear in this event's invitees
+        #   - coverage = matches / non_eoin_invitee_count
+        # This gives a quadratic-ish preference for events whose invitee list
+        # is *substantially* the room. A 3-of-4 small-meeting match (3×0.75=2.25)
+        # decisively beats a 2-of-8 big-meeting incidental match (2×0.25=0.50)
+        # even when the bigger meeting has timestamp + title bonuses. Email-form
+        # attendees are recognised (allan.mcdonald@... → "Allan McDonald").
         if voice_names:
-            evt_attendees = set()
-            for a in attendees_str.split("|"):
-                a = a.strip()
-                if not a or a == "<>":
-                    continue
-                evt_attendees.add(a)
-            # Match by full name OR by last token, case-insensitive
-            evt_lower = {a.lower() for a in evt_attendees}
-            evt_lasts = {a.split()[-1].lower() for a in evt_attendees if a.split()}
-            matches = 0
-            for v in voice_names:
-                vl = v.lower()
-                vlast = v.split()[-1].lower() if v.split() else ""
-                if vl in evt_lower or (vlast and vlast in evt_lasts):
-                    matches += 1
-            if matches:
-                score -= 40 * matches
+            attendees_l = [a.strip() for a in (e.get("ATTENDEES") or "").split("|") if a.strip() and a.strip() != "<>"]
+            non_eoin_count = sum(1 for a in attendees_l
+                                 if a.lower() not in ("eoin lane", "eoin.lane@adaptcentre.ie", "eoinlane@gmail.com"))
+            matches = _voice_match_count_for_event(e, voice_names)
+            if matches and non_eoin_count:
+                coverage = matches / non_eoin_count
+                score -= 50 * matches * coverage
 
         # We want lowest score = best, and ties broken by absolute time delta
         candidates.append((score, abs(diff), e))
@@ -510,11 +549,10 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
         attendees_str = evt.get("ATTENDEES") or ""
         attendees = [a.strip() for a in attendees_str.split("|") if a.strip() and a.strip() != "<>"]
         non_eoin = [a for a in attendees if a.lower() not in ("eoin lane", "eoin.lane@adaptcentre.ie", "eoinlane@gmail.com")]
-        evt_lower = {a.lower() for a in non_eoin}
-        evt_lasts = {a.split()[-1].lower() for a in non_eoin if a.split()}
-        matches = sum(1 for v in voice_names
-                      if v.lower() in evt_lower
-                      or (v.split() and v.split()[-1].lower() in evt_lasts))
+        # Build a synthetic non-Eoin event with same email-aware matching as
+        # the in-window scorer.
+        synthetic = {"ATTENDEES": "|".join(non_eoin)}
+        matches = _voice_match_count_for_event(synthetic, voice_names)
         n = max(1, len(non_eoin))
         return matches, len(non_eoin), matches / n
 
