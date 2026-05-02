@@ -23,6 +23,12 @@ CATEGORY_NAME_EXPANSIONS = {
         "ashish": "Ashish Rajput",
         "pat": "Pat Nestor",
         "pat nester": "Pat Nestor",
+        # Todd Asher (Bloomberg Associates, Deputy Principal Media & Technology) —
+        # joined the AI Lab Smart Cities Initiative kickoff 2026-05-01.
+        # WhisperX renders his surname inconsistently.
+        "todd": "Todd Asher",
+        "todd aaron": "Todd Asher",
+        "todd sharon": "Todd Asher",
     },
     "NTA": {
         "cathal": "Cathal Bellew",
