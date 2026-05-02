@@ -29,6 +29,10 @@ CATEGORY_NAME_EXPANSIONS = {
         "todd": "Todd Asher",
         "todd aaron": "Todd Asher",
         "todd sharon": "Todd Asher",
+        # Serena McIntosh (Bloomberg Associates, Digital Strategies Manager) —
+        # Todd's colleague on the same initiative. Whisper renders as "Serene".
+        # Note: distinct from Serena Davy (NTA) — distinguish by org context.
+        "serene": "Serena McIntosh",
     },
     "NTA": {
         "cathal": "Cathal Bellew",
