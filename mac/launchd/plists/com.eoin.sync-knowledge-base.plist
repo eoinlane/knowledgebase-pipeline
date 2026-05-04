@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.eoin.sync-knowledge-base</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/eoin/.local/bin/sync-knowledge-base.sh</string>
+    </array>
+    <key>WatchPaths</key>
+    <array>
+        <string>/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes Analysis/classification.csv</string>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/Users/eoin/.local/bin/sync-knowledge-base-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/eoin/.local/bin/sync-knowledge-base-launchd.log</string>
+</dict>
+</plist>
