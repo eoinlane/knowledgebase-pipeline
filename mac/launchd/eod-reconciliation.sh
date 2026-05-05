@@ -5,6 +5,17 @@
 # on any unconfirmed meetings whose attendees shifted.
 
 LOG="/Users/eoin/.local/bin/eod-reconciliation.log"
+
+# Sleep protection: Mac is mobile (M3, often on the move). If launchd fires
+# this while the Mac is going to sleep, the script can be killed mid-flight
+# without leaving a log entry. caffeinate -i prevents idle sleep for our
+# runtime; the EXIT trap ensures any non-zero exit (signal, crash, etc.)
+# leaves a forensic line in the log.
+if [ "${CAFFEINATED:-0}" != "1" ]; then
+    exec env CAFFEINATED=1 caffeinate -i "$0" "$@"
+fi
+trap 'rc=$?; [ "$rc" -ne 0 ] && echo "$(date "+%Y-%m-%d %H:%M:%S"): ABORT rc=$rc (line $LINENO)" >> "$LOG"' EXIT
+
 REPORT_DIR="$HOME/.local/share/kb/reconciliation"
 mkdir -p "$REPORT_DIR"
 

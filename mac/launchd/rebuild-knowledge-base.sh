@@ -7,6 +7,17 @@
 
 LOG="/Users/eoin/.local/bin/rebuild-knowledge-base.log"
 UBUNTU="eoin@nvidiaubuntubox"
+
+# Sleep protection: Mac is mobile (M3, often on the move). If launchd fires
+# this at 04:00 while the Mac is going to sleep, the script can be killed
+# mid-flight without leaving a log entry. caffeinate -i prevents idle sleep
+# for our runtime; the EXIT trap ensures any non-zero exit (signal, crash,
+# etc.) leaves a forensic line in the log.
+if [ "${CAFFEINATED:-0}" != "1" ]; then
+    exec env CAFFEINATED=1 caffeinate -i "$0" "$@"
+fi
+trap 'rc=$?; [ "$rc" -ne 0 ] && echo "$(date "+%Y-%m-%d %H:%M:%S"): ABORT rc=$rc (line $LINENO)" >> "$LOG"' EXIT
+
 echo "$(date): KB rebuild starting..." >> "$LOG"
 
 # Step 1: Export calendars (non-fatal — falls back to existing cached files)
