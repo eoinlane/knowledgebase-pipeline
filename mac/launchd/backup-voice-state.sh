@@ -15,6 +15,20 @@ UBUNTU="eoin@nvidiaubuntubox"
 TODAY=$(date +%Y-%m-%d)
 DEST="$ROOT/$TODAY"
 
+# Keep Mac awake for the whole run. The 2026-05-04 03:23 backup produced an
+# empty directory because the Mac was asleep at 03:23, woke briefly at 03:29
+# when launchd deferred the job, but went back to sleep mid-SSH before the
+# script could log anything. caffeinate -i prevents idle sleep for the
+# duration of this process.
+if [ "${CAFFEINATED:-0}" != "1" ]; then
+    exec env CAFFEINATED=1 caffeinate -i "$0" "$@"
+fi
+
+# Always log SOMETHING on exit so silent failures are visible. Trap fires on
+# any exit (success, error, signal) — if we exit before the success line at
+# the bottom, this still leaves a forensic trace.
+trap 'rc=$?; [ "$rc" -ne 0 ] && echo "$(date "+%Y-%m-%d %H:%M:%S"): ABORT rc=$rc (line $LINENO)" >> "$LOG"' EXIT
+
 mkdir -p "$DEST"
 ts=$(date "+%Y-%m-%d %H:%M:%S")
 
