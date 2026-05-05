@@ -194,6 +194,23 @@ def apply_manual_corrections(conn):
         resolved_name = person_data.get("name")
         title         = person_data.get("title")
         org_detail    = person_data.get("org")
+
+        # Guard: refuse to collapse a multi-word name to a shorter form.
+        # Reverse-direction entries like {"Jamie Cudden": {"name": "Jamie"}}
+        # silently corrupted resolution by mapping 3 distinct Jamies onto a
+        # single first-name slug. Legitimate exception: stripping a
+        # parenthetical (e.g. "Stephen Rigney ( ADAPT Research Centre )"
+        # → "Stephen Rigney"). We allow that by checking whether the raw
+        # name with parens stripped equals the resolved name.
+        if resolved_name and isinstance(resolved_name, str):
+            raw_tokens = len(raw_name.split())
+            new_tokens = len(resolved_name.split())
+            if new_tokens < raw_tokens:
+                stripped = re.sub(r"\s*\([^)]*\)\s*", " ", raw_name).strip()
+                if stripped.lower() != resolved_name.lower():
+                    print(f"  SKIP corruption: '{raw_name}' → '{resolved_name}' would shorten")
+                    continue
+
         slug = re.sub(r"[^a-z0-9-]", "", (resolved_name or raw_name).lower()
                       .replace(" ", "-").replace("'", ""))
         c.execute("""
@@ -267,9 +284,17 @@ def resolve_names(conn, people_dir):
             ).fetchall()
         )
 
+        # Guard: never resolve a multi-word DB name to a fewer-tokens
+        # people-file name. People files like alex.md / david.md / jamie.md
+        # have single-word `name:` frontmatter, which would otherwise collapse
+        # all "Alex Surname" / "David Surname" rows onto the wrong slug.
+        name_tokens = len(name.split())
+
         if len(matches) == 1:
             # Only one candidate — resolve if at least 1 meeting overlaps (or no meetings yet)
             full_name, slug, cand_meetings = matches[0]
+            if len(full_name.split()) < name_tokens:
+                continue  # would collapse multi-word → fewer-token; skip
             overlap = len(attended & cand_meetings)
             if overlap > 0 or not cand_meetings:
                 c.execute(
@@ -281,6 +306,8 @@ def resolve_names(conn, people_dir):
             # Multiple candidates — pick highest meeting overlap, require at least 1
             best_name, best_slug, best_overlap = None, None, 0
             for full_name, slug, cand_meetings in matches:
+                if len(full_name.split()) < name_tokens:
+                    continue
                 overlap = len(attended & cand_meetings)
                 if overlap > best_overlap:
                     best_overlap = overlap

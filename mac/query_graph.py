@@ -757,12 +757,16 @@ def cmd_tags(args):
 def cmd_review(args):
     conn = get_conn(GRAPH_DB)
     today = _dt.date.today()
-    # Default to current week (Mon-Sun), or use --weeks to look back further
+    # Default to a rolling 7-day window (today minus 7 days). Previously this
+    # computed `today - days=today.weekday()` which on a Tuesday returned only
+    # the Mon-Tue slice — broken-by-default for interactive review since it
+    # excluded the previous week's meetings. The launchd Mon-07:00 invocation
+    # works around this by passing --weeks 2; now interactive defaults work.
     weeks_back = args.weeks or 1
     full = getattr(args, "full", False)
     def _t(s, n):
         return s if full else s[:n]
-    week_start = today - _dt.timedelta(days=today.weekday(), weeks=weeks_back - 1)
+    week_start = today - _dt.timedelta(days=7 * weeks_back - 1)
     week_end = today + _dt.timedelta(days=1)
     start_str = week_start.isoformat()
     end_str = week_end.isoformat()
