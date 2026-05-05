@@ -68,10 +68,22 @@ CATEGORY_NAME_EXPANSIONS = {
     "ADAPT": {
         "kizzer": "Khizer Ahmed Biyabani",
         "khizer": "Khizer Ahmed Biyabani",
+        # NOTE: "ashish" alone is ambiguous in ADAPT — could be Rajput (ADAPT)
+        # or Kumar Jha (TBS, often crosses into ADAPT panel/PhD work). Use
+        # context (calendar invite or co-attendees) to disambiguate. Default
+        # to Rajput when unclear since he's higher-frequency in ADAPT.
         "ashish": "Ashish Rajput",
+        "ashish kumar jha": "Ashish Kumar Jha",
+        "ashish jha": "Ashish Kumar Jha",
         "declan": "Declan McKibben",
         "sean": "Shunyu Ji",
         "shawn": "Shunyu Ji",
+        "arti": "Aarthi Kumar",
+        "aarthi": "Aarthi Kumar",
+        # Paul Pierotti (EY Ireland AI & Data Partner). Whisper rendered as
+        # "Paul Cottrell" on the 2026-05-05 panel prep call.
+        "paul cottrell": "Paul Pierotti",
+        "paul pierotti": "Paul Pierotti",
     },
     "TBS": {
         "kisito": "Kisito Futonge Nzembayie",
