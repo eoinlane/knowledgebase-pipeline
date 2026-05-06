@@ -337,14 +337,13 @@ for fname in [
     all_events += load_cal_pipe_file(str(CAL_DIR / fname))
 
 # Deduplicate. The same event can appear in multiple calendar files (e.g. an
-# event invited to both work and ADAPT calendars). When that happens, prefer
-# the copy with the richer ATTENDEES field — empty/short attendee lists are a
-# known artefact of cross-org sync, and picking the populated copy is what
-# downstream attendee-matching needs.
+# event invited to both work and ADAPT calendars). When that happens, MERGE
+# the ATTENDEES from all copies — different calendars often hold different
+# representations of the same invitee (work has "Shunyu Ji" plain, ADAPT has
+# "shji@tcd.ie" email-only). Picking just one would drop name-resolvable
+# tokens that downstream voice/attendee matching needs.
 seen_index = {}  # key → index in unique_events
 unique_events = []
-def _att_len(e):
-    return len((e.get("ATTENDEES") or "").strip())
 
 for e in all_events:
     key = (e.get("TITLE", "").strip().lower()[:40], e.get("START", "")[:16])
@@ -353,8 +352,25 @@ for e in all_events:
         unique_events.append(e)
     else:
         existing = unique_events[seen_index[key]]
-        if _att_len(e) > _att_len(existing):
-            unique_events[seen_index[key]] = e
+        # Union attendees across copies. Dedupe by lowercased value so
+        # "Shunyu Ji" doesn't double-up but "Shunyu Ji" + "shji@tcd.ie" both
+        # land in the merged list (different name forms for the same person).
+        merged = []
+        seen_a = set()
+        for a in ((existing.get("ATTENDEES") or "").split("|")
+                  + (e.get("ATTENDEES") or "").split("|")):
+            a = a.strip()
+            if not a or a == "<>":
+                continue
+            if a.lower() in seen_a:
+                continue
+            seen_a.add(a.lower())
+            merged.append(a)
+        if merged:
+            existing["ATTENDEES"] = "|".join(merged)
+        # Keep an END time if either copy has one.
+        if not existing.get("END") and e.get("END"):
+            existing["END"] = e["END"]
 print(f"  {len(unique_events)} unique calendar events")
 if len(unique_events) == 0:
     print(
@@ -554,18 +570,25 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
         Coverage = matches / non_eoin_invitees — measures how completely the
         recording's voices fill this event. A small meeting with 1 voice
         match (e.g. Cathal in a Cathal+Eoin 1-on-1) scores 100%; a 19-person
-        Governance Board with the same 1 voice match scores ~5%."""
+        Governance Board with the same 1 voice match scores ~5%.
+
+        Saturation cap: when matches == len(voice_names), every confirmed
+        voice in the room maps to an invitee on this event. That's a
+        complete-cover signal even if the event lists the same person twice
+        (e.g. Ashish via both ashish.jha@adaptcentre.ie AND akjha@tcd.ie),
+        which would otherwise depress the raw ratio below 1.0."""
         if not voice_names:
             return 0, 0, 0.0
         attendees_str = evt.get("ATTENDEES") or ""
         attendees = [a.strip() for a in attendees_str.split("|") if a.strip() and a.strip() != "<>"]
         non_eoin = [a for a in attendees if a.lower() not in ("eoin lane", "eoin.lane@adaptcentre.ie", "eoinlane@gmail.com")]
-        # Build a synthetic non-Eoin event with same email-aware matching as
-        # the in-window scorer.
         synthetic = {"ATTENDEES": "|".join(non_eoin)}
         matches = _voice_match_count_for_event(synthetic, voice_names)
         n = max(1, len(non_eoin))
-        return matches, len(non_eoin), matches / n
+        coverage = matches / n
+        if matches >= len(voice_names) and matches > 0:
+            coverage = 1.0
+        return matches, len(non_eoin), coverage
 
     if voice_names:
         # Best in-window voice coverage

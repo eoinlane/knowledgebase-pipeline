@@ -10,6 +10,7 @@ MAC_HOST="eoin@100.103.128.44"
 MAC_NOTES_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes"
 MAC_ANALYSIS_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes Analysis"
 CSV_PATH="/home/eoin/audio-inbox/classification.csv"
+SKIP_LIST="/home/eoin/audio-inbox/.skip_uuids"
 # HF_TOKEN is set in the systemd service environment (notes-watcher)
 # Do not hardcode secrets in scripts
 
@@ -34,6 +35,14 @@ while read FNAME; do
 
     if [ -f "$OUT_PATH" ]; then
         echo "$(date): Already transcribed — $FNAME" >> "$LOG"
+        continue
+    fi
+
+    # Graveyard check: user-marked UUIDs to skip (e.g. Apple Notes partial
+    # recordings that keep coming back via iCloud sync).
+    if [ -f "$SKIP_LIST" ] && grep -qxF "$UUID" "$SKIP_LIST"; then
+        echo "$(date): Skipping $UUID (in skip list) — removing audio" >> "$LOG"
+        rm -f "$AUDIO_DIR/$FNAME"
         continue
     fi
 

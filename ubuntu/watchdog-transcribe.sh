@@ -8,6 +8,7 @@ AUDIO_DIR="/home/eoin/audio-inbox/Notes"
 TRANS_DIR="/home/eoin/audio-inbox/Transcriptions"
 CSV_PATH="/home/eoin/audio-inbox/classification.csv"
 LOG="/home/eoin/audio-inbox/watchdog.log"
+SKIP_LIST="/home/eoin/audio-inbox/.skip_uuids"
 VENV="/home/eoin/whisper-env"
 MAC_HOST="eoin@100.103.128.44"
 MAC_NOTES_DIR="/Users/eoin/Library/Mobile Documents/com~apple~CloudDocs/My Notes"
@@ -76,6 +77,13 @@ for audio in "$AUDIO_DIR"/*.m4a "$AUDIO_DIR"/*.mp3; do
     stem="${fname%.*}"
     txt="$TRANS_DIR/${stem}.txt"
     [ -f "$txt" ] && continue
+    # Skip recordings the user has marked as graveyard (e.g. partial Apple Notes
+    # recordings that keep coming back via iCloud sync). One UUID per line.
+    if [ -f "$SKIP_LIST" ] && grep -qxF "$stem" "$SKIP_LIST"; then
+        log "Skipping $stem (in $SKIP_LIST) — removing audio"
+        rm -f "$audio"
+        continue
+    fi
     age_minutes=$(( ( $(date +%s) - $(stat -c %Y "$audio") ) / 60 ))
     [ "$age_minutes" -lt "$MIN_AGE_MINUTES" ] && continue
     if [ -z "$PENDING" ] || [ "$age_minutes" -gt "$PENDING_AGE" ]; then
