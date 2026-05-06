@@ -37,6 +37,9 @@ PERSON_CATEGORY = {
     "Tom Curran": "DCC",
     "Jamie Cudden": "DCC",
     "Stephen Rigney": "DCC",
+    "Todd Asher": "DCC",  # Bloomberg Associates, AI Lab Smart Cities partner
+    "Serena McIntosh": "DCC",  # Bloomberg Associates, AI Lab Smart Cities partner
+    "Allan McDonald": "DCC",  # DCC digital lead
 
     # ADAPT
     "Declan McKibben": "ADAPT",

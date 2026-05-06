@@ -336,14 +336,25 @@ for fname in [
 ]:
     all_events += load_cal_pipe_file(str(CAL_DIR / fname))
 
-# Deduplicate
-seen_keys = set()
+# Deduplicate. The same event can appear in multiple calendar files (e.g. an
+# event invited to both work and ADAPT calendars). When that happens, prefer
+# the copy with the richer ATTENDEES field — empty/short attendee lists are a
+# known artefact of cross-org sync, and picking the populated copy is what
+# downstream attendee-matching needs.
+seen_index = {}  # key → index in unique_events
 unique_events = []
+def _att_len(e):
+    return len((e.get("ATTENDEES") or "").strip())
+
 for e in all_events:
     key = (e.get("TITLE", "").strip().lower()[:40], e.get("START", "")[:16])
-    if key not in seen_keys:
-        seen_keys.add(key)
+    if key not in seen_index:
+        seen_index[key] = len(unique_events)
         unique_events.append(e)
+    else:
+        existing = unique_events[seen_index[key]]
+        if _att_len(e) > _att_len(existing):
+            unique_events[seen_index[key]] = e
 print(f"  {len(unique_events)} unique calendar events")
 if len(unique_events) == 0:
     print(
