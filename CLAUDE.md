@@ -277,7 +277,15 @@ The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"`
 
 - Meeting filenames: `YYYY-MM-DD_HHMM_CATEGORY_slug.md`
 - People filenames: slugified full name (e.g. `cathal-murphy.md`) — Eoin Lane has no people file
-- Categories: `NTA`, `DCC`, `DFB`, `ADAPT`, `Diotima`, `Paradigm`, `TBS`, `other:*`
+- Categories: `NTA`, `DCC`, `DFB`, `ADAPT`, `Diotima`, `Paradigm`, `TBS`, `LCC`, `other:*`
 - "Owen Lane" in transcripts = Eoin Lane (WhisperX mishearing)
 - `primary_org` in the people table = most frequent meeting category, not actual employer
 - Ubuntu shell is **bash** (changed from fish 2026-04-19)
+
+## Related project folders / GitHub repos (separate from this pipeline)
+
+Eoin's client-deliverable work lives in `~/Documents/{NTA,TBS,patents,whitepaper,aurum}/...`, with corresponding GitHub repos under `eoinlane/*` (mostly private). These are **separate from this pipeline repo** — the pipeline captures meetings/decisions ABOUT projects; the project folders contain the artefacts (tender drafts, course materials, papers, code, pitch decks).
+
+Each leaf project folder has its own `CLAUDE.md`. Mapping of folder ↔ repo is documented in the memory dossier `project_github_integration_parked.md`. Notable: **`~/Documents/NTA/tenders/` is intentionally local-only** (confidential, no GitHub repo).
+
+Integration between this pipeline and the project folders is deliberately light — bidirectional pointers via memory dossiers, no unified data model. See the parked initiative for the deferred Tier-1/Tier-2 plan if it ever needs picking up.
