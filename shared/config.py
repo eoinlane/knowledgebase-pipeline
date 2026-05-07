@@ -72,4 +72,4 @@ PERSON_CATEGORY = {
 }
 
 # Categories that shouldn't be overridden by speaker-based reclassification
-KEEP_CATEGORIES = {"other:personal", "other:conference", "other:lgma", "other:blank"}
+KEEP_CATEGORIES = {"other:personal", "other:conference", "other:lgma", "other:blank", "FutureBusiness"}
