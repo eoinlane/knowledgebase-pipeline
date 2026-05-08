@@ -123,6 +123,7 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
 | `com.eoin.sync-inbox-audio` | `sync-inbox-audio.sh` | WatchPaths: `~/inbox/` — uploads `.mp3` / `.m4a` to Ubuntu's audio inbox, then deletes the local Mac copy (canonical audio lives on Ubuntu) |
 | `com.eoin.test-pipeline` | `test-pipeline.sh` | Daily 6am |
 | `com.eoin.weekly-review` | `weekly-review.sh` | Mondays 7am — runs `query_graph.py review --weeks 2` and writes to `~/knowledge_base/_reviews/YYYY-Wnn.md` |
+| `com.eoin.refresh-memory-symlinks` | `setup-memory-symlinks.sh` | WatchPaths: pipeline memory dir + `~/Documents/` — propagates the cross-cutting memory subset (user profile, feedback rules, client + person dossiers) into every project folder so Claude opened in `~/Documents/<...>` shares behaviour with Claude opened here |
 
 ## Knowledge Base
 
