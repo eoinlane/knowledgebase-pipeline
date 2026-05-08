@@ -84,29 +84,46 @@ CROSS_CUTTING_FILES=(
 )
 
 # ── Project folders to receive the shared memory ─────────────────────────────
-# Each entry is the path Claude Code would compute for a folder's memory.
-# Format: ~/.claude/projects/<sanitised-cwd>/. Sanitisation rule is "/" → "-",
-# " " → "-", with a leading "-" prefix. Hardcoded for explicitness rather
-# than auto-discovered.
-PROJECT_MEMORY_DIRS=(
-    # Umbrella folders
-    "$HOME/.claude/projects/-Users-eoin-Documents-NTA/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-TBS/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-patents/memory"
-
-    # Leaf folders
-    "$HOME/.claude/projects/-Users-eoin-Documents-NTA-active-travel/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-NTA-tenders/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-TBS-DAA/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-TBS-BU7852/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-TBS-BUU33803--Business-Analytics-for-AY-2026-27/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-patents-diotima/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-whitepaper/memory"
-    "$HOME/.claude/projects/-Users-eoin-Documents-aurum/memory"
-
-    # Standalone workspaces
-    "$HOME/.claude/projects/-Users-eoin-paradigm/memory"
+# Auto-discovered by walking ~/Documents (and ~/paradigm) for any folder that
+# contains a CLAUDE.md. Adding a new project folder = create the folder with
+# a CLAUDE.md, next run picks it up. Removing = delete the folder, the script
+# will skip it (orphan symlinks under ~/.claude/projects/<sanitised-cwd>/ are
+# harmless but can be cleaned with --prune).
+EXTRA_ROOTS=(
+    "$HOME/paradigm"
 )
+
+discover_project_folders() {
+    # Walk up to depth 3 under ~/Documents looking for CLAUDE.md, exclude
+    # caches / vendored trees / hidden dirs. Skip the home dir itself.
+    find "$HOME/Documents" -maxdepth 4 -name CLAUDE.md \
+        -not -path '*/node_modules/*' \
+        -not -path '*/.git/*' \
+        -not -path '*/.venv/*' \
+        -not -path '*/__pycache__/*' \
+        2>/dev/null \
+        | while IFS= read -r f; do dirname "$f"; done
+
+    for root in "${EXTRA_ROOTS[@]}"; do
+        [ -f "$root/CLAUDE.md" ] && echo "$root"
+    done
+}
+
+sanitise_path() {
+    # Replicate Claude Code's working-directory → memory-path scheme:
+    # /  → -    (path separator)
+    #    → -    (space)
+    # Prefixes with leading "-" because the path starts with /.
+    echo "$1" | sed 's|/|-|g; s| |-|g'
+}
+
+# Build PROJECT_MEMORY_DIRS dynamically.
+PROJECT_MEMORY_DIRS=()
+while IFS= read -r folder; do
+    [ -z "$folder" ] && continue
+    sanitised=$(sanitise_path "$folder")
+    PROJECT_MEMORY_DIRS+=("$HOME/.claude/projects/${sanitised}/memory")
+done < <(discover_project_folders | sort -u)
 
 # ── Generate slim MEMORY.md index for project folders ────────────────────────
 generate_slim_memory_md() {

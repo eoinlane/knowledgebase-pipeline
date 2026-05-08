@@ -69,4 +69,12 @@ fi
 # Step 4: Open WebUI upload disabled — replaced by Claude Code + query_graph.py
 # To re-enable: /usr/local/bin/python3 /Users/eoin/upload_knowledge_base_incremental.py
 
+# Step 5: Refresh memory symlinks across project folders. Auto-discovers any
+# new folder under ~/Documents containing a CLAUDE.md and re-creates per-file
+# symlinks for the cross-cutting memory subset. Idempotent and silent on
+# success.
+echo "$(date): Refreshing memory symlinks..." >> "$LOG"
+/bin/bash /Users/eoin/knowledgebase-pipeline/mac/setup-memory-symlinks.sh >> "$LOG" 2>&1 || \
+    echo "$(date): memory-symlinks refresh FAILED (non-fatal)" >> "$LOG"
+
 echo "$(date): KB rebuild complete" >> "$LOG"
