@@ -286,6 +286,6 @@ The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"`
 
 Eoin's client-deliverable work lives in `~/Documents/{NTA,TBS,patents,whitepaper,aurum}/...`, with corresponding GitHub repos under `eoinlane/*` (mostly private). These are **separate from this pipeline repo** — the pipeline captures meetings/decisions ABOUT projects; the project folders contain the artefacts (tender drafts, course materials, papers, code, pitch decks).
 
-Each leaf project folder has its own `CLAUDE.md`. Mapping of folder ↔ repo is documented in the memory dossier `project_github_integration_parked.md`. Notable: **`~/Documents/NTA/tenders/` is intentionally local-only** (confidential, no GitHub repo).
+Each leaf project folder has its own `CLAUDE.md`, and the umbrella folders (`~/Documents/{NTA,TBS,patents}/`) carry their own CLAUDE.md pointing to sub-projects, memory dossiers, and relevant `query_graph.py` invocations. Mapping of folder ↔ repo is documented in the memory dossier `project_github_integration_done_2026-05-08.md`. Notable: **`~/Documents/NTA/tenders/` is intentionally local-only** (drafts confidential; the sanitised hackathon-proposal track lives separately at `eoinlane/nta-tenders`).
 
-Integration between this pipeline and the project folders is deliberately light — bidirectional pointers via memory dossiers, no unified data model. See the parked initiative for the deferred Tier-1/Tier-2 plan if it ever needs picking up.
+Integration between this pipeline and the project folders is deliberately light — bidirectional pointers via memory dossiers, no unified data model. Tier 2 (memory symlink continuity across project folders) and Tier 3 (deliverables-axis query layer) remain deferred.
