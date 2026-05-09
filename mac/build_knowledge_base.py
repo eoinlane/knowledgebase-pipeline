@@ -508,8 +508,13 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
         # "Catch up" / "Catch-up" / "Catchup" titles are usually 1-on-1s
         if re.search(r"\bcatch[\s-]?up\b", title, re.I):
             score -= 15
-        # Names like "X & Y" / "X <> Y" — both-parties-in-title pattern
-        if re.search(r"\s(?:&|and|<>|vs)\s", title, re.I) or "/" in title:
+        # Names like "X & Y" / "X <> Y" — both-parties-in-title pattern.
+        # Capped at short titles: phrase titles such as "Lab Check in &
+        # Next Steps" (where "&" joins phrases, not names) shouldn't get
+        # this bonus. ≤5 words covers every real 1-on-1 in the calendar
+        # corpus while excluding compound-phrase false positives.
+        if (len(title.split()) <= 5
+                and (re.search(r"\s(?:&|and|<>|vs)\s", title, re.I) or "/" in title)):
             score -= 20
 
         # Attendee count bonus: when Eoin is solo-recording, smaller meetings
