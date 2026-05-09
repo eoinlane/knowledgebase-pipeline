@@ -883,7 +883,10 @@ def cmd_focus(args):
         print(f"Quality filter dropped: {dropped_quality} items (weak verbs / summary boilerplate)")
     print(f"Candidates after filter: {len(candidates)}")
     print(f"Picked: {len(picks)} (cap {args.max}, max {per_project_cap}/project)\n")
-    print("**DRY RUN — nothing pushed to Apple Reminders.**\n")
+    if not args.push:
+        print("**DRY RUN — nothing pushed to Apple Reminders.** (Pass --push to write.)\n")
+    else:
+        print("**PUSH MODE — reminders will be created in Apple Reminders.**\n")
 
     if not picks:
         print("(no items match)")
@@ -920,7 +923,95 @@ def cmd_focus(args):
             print(f"- {p}: +{dropped_by_project[p]} more candidates")
         print()
 
+    if args.push:
+        _push_to_reminders(picks, today_ids)
+
     conn.close()
+
+
+def _push_to_reminders(picks, today_ids):
+    """Push picks into Apple Reminders. Items in today_ids also land in KB:Today.
+
+    Dedupes by an embedded ``[kb-id]`` line in each reminder's notes — so
+    re-running ``focus --push`` is safe and won't create duplicates.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import apple_reminders as ar
+
+    def kb_id(item):
+        # rstrip so a trailing space inside the [:80] window doesn't make
+        # round-tripped ids miss the dedupe set (Reminders preserves the
+        # space, but our parser strips on read).
+        return f"{item['filename']}::{item['text'][:80].rstrip()}"
+
+    def notes_for(item):
+        return (
+            f"{item['date'].isoformat()} · {meeting_title(item['filename'])}\n\n"
+            f"[kb-id] {kb_id(item)}"
+        )
+
+    def existing_ids_in(list_name):
+        try:
+            existing = ar.list_reminders(list_name, include_completed=False)
+        except RuntimeError:
+            return set()
+        ids = set()
+        for r in existing:
+            body = (r.get("body") or "").strip()
+            for line in body.splitlines():
+                if line.startswith("[kb-id] "):
+                    ids.add(line[len("[kb-id] "):].strip())
+        return ids
+
+    # What lists we need: one per project + KB:Today if any today picks exist.
+    projects = sorted({p["project"] for p in picks})
+    list_names = [f"KB:{p}" for p in projects]
+    today_picks = [p for p in picks if p["id"] in today_ids]
+    if today_picks:
+        list_names.append("KB:Today")
+
+    print("### Push results\n")
+    for ln in list_names:
+        result = ar.ensure_list(ln)
+        verb = "created" if result.get("created") else "exists"
+        print(f"- list `{ln}` ({verb})")
+
+    # KB:Today is a rolling snapshot — prune entries that aren't in the
+    # current today set before pushing, so it always reflects "right now".
+    # Per-project lists are append-only; closures handle their lifecycle.
+    pruned = 0
+    if today_picks:
+        current_today_ids = {kb_id(p) for p in today_picks}
+        for r in ar.list_reminders("KB:Today", include_completed=False):
+            body = (r.get("body") or "")
+            for line in body.splitlines():
+                if line.startswith("[kb-id] "):
+                    rid = line[len("[kb-id] "):].strip()
+                    if rid not in current_today_ids:
+                        ar.delete_reminder(r["id"])
+                        pruned += 1
+                    break
+    if pruned:
+        print(f"- pruned {pruned} stale entr{'y' if pruned == 1 else 'ies'} from KB:Today")
+
+    # One existing-id snapshot per list — fetched once before any creates.
+    existing_by_list = {ln: existing_ids_in(ln) for ln in list_names}
+
+    created = 0
+    skipped = 0
+    for item in picks:
+        targets = [f"KB:{item['project']}"]
+        if item["id"] in today_ids:
+            targets.append("KB:Today")
+        for ln in targets:
+            if kb_id(item) in existing_by_list[ln]:
+                skipped += 1
+                continue
+            ar.create_reminder(ln, item["text"], notes_for(item))
+            existing_by_list[ln].add(kb_id(item))
+            created += 1
+
+    print(f"\nCreated: {created} reminder(s). Skipped (already present): {skipped}.\n")
 
 
 def cmd_review(args):
@@ -1132,6 +1223,9 @@ def main():
                         help="Comma-separated projects to exclude (default: other:personal,FutureBusiness)")
     p_focus.add_argument("--no-quality-filter", action="store_true",
                         help="Disable the weak-verb / summary-boilerplate quality filter")
+    p_focus.add_argument("--push", action="store_true",
+                        help="Actually create reminders in Apple Reminders (default is dry-run). "
+                             "Lists are KB:<project> + KB:Today; existing entries with matching kb-id are skipped.")
 
     args = parser.parse_args()
 
