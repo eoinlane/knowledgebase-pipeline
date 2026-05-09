@@ -88,7 +88,19 @@ def patch_meeting_file(path, meeting_correction, people_corrections):
             fm["people"] = [", ".join(corrected)]
             changed = True
 
-    if not changed:
+    # Body-level people_corrections — applied even when frontmatter is
+    # already correct, since action items, decisions, and transcript labels
+    # also reference the names. Track whether the body actually changed so
+    # we don't rewrite identical content.
+    body_changed = False
+    if people_corrections:
+        for old_name, new_name in people_corrections.items():
+            new_body = re.sub(rf'\b{re.escape(old_name)}\b', new_name, body)
+            if new_body != body:
+                body_changed = True
+                body = new_body
+
+    if not changed and not body_changed:
         return False
 
     # Serialise back — preserve field order
@@ -127,15 +139,6 @@ def patch_meeting_file(path, meeting_correction, people_corrections):
             f'\\g<1>{new_topic}\\2',
             body
         )
-
-    if people_corrections:
-        for old_name, new_name in people_corrections.items():
-            # Update ## People section
-            body = re.sub(
-                rf'\b{re.escape(old_name)}\b',
-                new_name,
-                body
-            )
 
     write_file(path, "\n".join(lines) + body)
     return True
