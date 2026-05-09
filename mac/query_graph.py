@@ -762,9 +762,37 @@ def cmd_focus(args):
 
     Defaults: 4-week freshness window, max 3 items per project, hard cap 10
     overall. The "Today" set is the top 3 across all picks by recording date.
+
+    Quality filters (off when --no-quality-filter):
+      - Drops projects in --exclude (default: other:personal,FutureBusiness).
+      - Drops items whose action text starts with a weak verb (Discuss,
+        Provide, Consider, Explore) or contains summary-boilerplate
+        ("post-meeting summary", "summary of the meeting").
     """
     today = _dt.date.today()
     cutoff = today - _dt.timedelta(weeks=args.weeks)
+
+    # Project exclude list: comma-separated, case-insensitive.
+    excluded_projects = {p.strip().lower() for p in (args.exclude or "").split(",") if p.strip()}
+
+    # Content quality heuristics.
+    WEAK_VERBS = {"discuss", "provide", "consider", "explore", "think"}
+    BOILERPLATE_FRAGMENTS = (
+        "post-meeting summary",
+        "summary of the meeting",
+        "send out a summary",
+        "send the summary",
+    )
+
+    def is_low_quality(text):
+        t = text.strip().lower()
+        first = t.split()[0] if t else ""
+        if first in WEAK_VERBS:
+            return True
+        for frag in BOILERPLATE_FRAGMENTS:
+            if frag in t:
+                return True
+        return False
 
     # Closures dedupe — same key shape as save_closure().
     closures = {}
@@ -781,7 +809,9 @@ def cmd_focus(args):
         "FROM action_items WHERE status = 'open' AND owner LIKE '%eoin%' COLLATE NOCASE"
     ).fetchall()
 
-    # Filter: drop stale, drop already-closed.
+    # Filter: drop stale, drop already-closed, drop excluded projects, drop low quality.
+    dropped_quality = 0
+    dropped_excluded = 0
     candidates = []
     for r in rows:
         date_str = r["meeting_filename"].split("_")[0] if "_" in r["meeting_filename"] else None
@@ -794,11 +824,18 @@ def cmd_focus(args):
         key = f"{r['meeting_filename']}::{r['text'][:80]}"
         if closures.get(key) == "closed":
             continue
+        project = (r["project"] or meeting_category(r["meeting_filename"]) or "other")
+        if project.lower() in excluded_projects:
+            dropped_excluded += 1
+            continue
+        if not args.no_quality_filter and is_low_quality(r["text"] or ""):
+            dropped_quality += 1
+            continue
         candidates.append({
             "id": r["id"],
             "filename": r["meeting_filename"],
             "text": r["text"],
-            "project": (r["project"] or meeting_category(r["meeting_filename"]) or "other"),
+            "project": project,
             "date": mtg_date,
         })
 
@@ -840,6 +877,10 @@ def cmd_focus(args):
     print(f"## Focus list{proj_label} — {today.isoformat()}\n")
     print(f"Source: graph.db open items, owner=Eoin Lane, recorded "
           f"{cutoff.isoformat()} → {today.isoformat()}, not in graph_closures.json.")
+    if excluded_projects:
+        print(f"Excluded projects: {', '.join(sorted(excluded_projects))} ({dropped_excluded} dropped)")
+    if not args.no_quality_filter and dropped_quality:
+        print(f"Quality filter dropped: {dropped_quality} items (weak verbs / summary boilerplate)")
     print(f"Candidates after filter: {len(candidates)}")
     print(f"Picked: {len(picks)} (cap {args.max}, max {per_project_cap}/project)\n")
     print("**DRY RUN — nothing pushed to Apple Reminders.**\n")
@@ -1087,6 +1128,10 @@ def main():
     p_focus.add_argument("--project", "-p", help="Filter to one project")
     p_focus.add_argument("--max", type=int, default=10, help="Hard cap on total items (default 10)")
     p_focus.add_argument("--weeks", type=int, default=4, help="Freshness window in weeks (default 4)")
+    p_focus.add_argument("--exclude", default="other:personal,FutureBusiness",
+                        help="Comma-separated projects to exclude (default: other:personal,FutureBusiness)")
+    p_focus.add_argument("--no-quality-filter", action="store_true",
+                        help="Disable the weak-verb / summary-boilerplate quality filter")
 
     args = parser.parse_args()
 

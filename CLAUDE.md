@@ -43,7 +43,12 @@ python3 ~/query_graph.py done "send slides"             # close by text match
 python3 ~/query_graph.py decisions --project NTA        # decisions by project
 python3 ~/query_graph.py history "Jamie Cudden"         # meeting history
 python3 ~/query_graph.py stats                          # graph overview
+python3 ~/query_graph.py focus                          # curated dry-run for Apple Reminders push
 ```
+
+**Apple Reminders integration (in progress as of 2026-05-09):**
+- `query_graph.py focus` is the curation validator (dry-run only). Eoin-owned items, fresh (4-week window), excluded projects (`other:personal`, `FutureBusiness` by default), quality filter (drops weak-verb + summary-boilerplate items), max 3 per project, hard cap 10 total, plus a "Today" cross-cut of top 3 by recording date.
+- Apple Reminders MCP installed locally on this Mac. The `--push` wiring isn't built yet — design and tuning issues captured in memory dossier `project_apple_reminders_integration.md`. Push goes one-way (graph → Reminders); a future `sync-completions` write-back maps completed reminders to `~/.graph_closures.json`.
 
 **Contacts web UI:**
 ```bash
