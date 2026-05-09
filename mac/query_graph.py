@@ -754,6 +754,134 @@ def cmd_tags(args):
     conn.close()
 
 
+def cmd_focus(args):
+    """Curated focus list — Eoin-owned action items, fresh, deduped against
+    closures, capped per-project and overall. The Apple Reminders push isn't
+    wired in yet; this command prints what *would* be pushed so the curation
+    rules can be tuned before any reminders are written.
+
+    Defaults: 4-week freshness window, max 3 items per project, hard cap 10
+    overall. The "Today" set is the top 3 across all picks by recording date.
+    """
+    today = _dt.date.today()
+    cutoff = today - _dt.timedelta(weeks=args.weeks)
+
+    # Closures dedupe — same key shape as save_closure().
+    closures = {}
+    if CLOSURES_FILE.exists():
+        try:
+            with open(CLOSURES_FILE) as f:
+                closures = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    conn = get_conn(GRAPH_DB)
+    rows = conn.execute(
+        "SELECT id, meeting_filename, text, owner, project "
+        "FROM action_items WHERE status = 'open' AND owner LIKE '%eoin%' COLLATE NOCASE"
+    ).fetchall()
+
+    # Filter: drop stale, drop already-closed.
+    candidates = []
+    for r in rows:
+        date_str = r["meeting_filename"].split("_")[0] if "_" in r["meeting_filename"] else None
+        try:
+            mtg_date = _dt.date.fromisoformat(date_str)
+        except (ValueError, TypeError):
+            continue
+        if mtg_date < cutoff:
+            continue
+        key = f"{r['meeting_filename']}::{r['text'][:80]}"
+        if closures.get(key) == "closed":
+            continue
+        candidates.append({
+            "id": r["id"],
+            "filename": r["meeting_filename"],
+            "text": r["text"],
+            "project": (r["project"] or meeting_category(r["meeting_filename"]) or "other"),
+            "date": mtg_date,
+        })
+
+    # Optional project filter.
+    if args.project:
+        proj = args.project.upper()
+        candidates = [c for c in candidates if c["project"].upper() == proj]
+
+    # Group by project, newest first within project.
+    by_project = {}
+    for c in candidates:
+        by_project.setdefault(c["project"], []).append(c)
+    for p in by_project:
+        by_project[p].sort(key=lambda x: x["date"], reverse=True)
+
+    # Round-robin pick: max 3 per project, hard cap on total.
+    per_project_cap = 3
+    picks = []
+    project_keys = sorted(by_project.keys())
+    cursors = {p: 0 for p in project_keys}
+    while len(picks) < args.max:
+        added = False
+        for p in project_keys:
+            if cursors[p] < min(per_project_cap, len(by_project[p])):
+                picks.append(by_project[p][cursors[p]])
+                cursors[p] += 1
+                added = True
+                if len(picks) >= args.max:
+                    break
+        if not added:
+            break
+
+    # Today set: top 3 picks by date.
+    today_set = sorted(picks, key=lambda x: x["date"], reverse=True)[:3]
+    today_ids = {p["id"] for p in today_set}
+
+    # ── Output ───────────────────────────────────────────────────────────────
+    proj_label = f" [{args.project.upper()}]" if args.project else ""
+    print(f"## Focus list{proj_label} — {today.isoformat()}\n")
+    print(f"Source: graph.db open items, owner=Eoin Lane, recorded "
+          f"{cutoff.isoformat()} → {today.isoformat()}, not in graph_closures.json.")
+    print(f"Candidates after filter: {len(candidates)}")
+    print(f"Picked: {len(picks)} (cap {args.max}, max {per_project_cap}/project)\n")
+    print("**DRY RUN — nothing pushed to Apple Reminders.**\n")
+
+    if not picks:
+        print("(no items match)")
+        conn.close()
+        return
+
+    # "Today" cross-cut.
+    print(f"### Today ★ ({len(today_set)})\n")
+    for item in today_set:
+        print(f"- [ ] {item['text']}")
+        print(f"      _{item['project']} · {item['date'].isoformat()} · "
+              f"{meeting_title(item['filename'])}_\n")
+
+    # Per-project breakdown.
+    picks_by_project = {}
+    for item in picks:
+        picks_by_project.setdefault(item["project"], []).append(item)
+    for proj in sorted(picks_by_project.keys()):
+        items = picks_by_project[proj]
+        print(f"### {proj} ({len(items)})\n")
+        for item in items:
+            tag = "  ★" if item["id"] in today_ids else ""
+            print(f"- [ ] {item['text']}{tag}")
+            print(f"      _{item['date'].isoformat()} · {meeting_title(item['filename'])}_\n")
+
+    # What got dropped (truncated).
+    dropped_by_project = {}
+    for p, items in by_project.items():
+        if len(items) > per_project_cap:
+            dropped_by_project[p] = len(items) - per_project_cap
+    if dropped_by_project:
+        print("### Not surfaced (next batch / not enough room)\n")
+        for p in sorted(dropped_by_project.keys()):
+            print(f"- {p}: +{dropped_by_project[p]} more candidates")
+        print()
+
+    conn.close()
+
+
 def cmd_review(args):
     conn = get_conn(GRAPH_DB)
     today = _dt.date.today()
@@ -955,6 +1083,11 @@ def main():
 
     p_stats = sub.add_parser("stats", help="Graph stats overview")
 
+    p_focus = sub.add_parser("focus", help="Curated focus list ready for Apple Reminders push (dry-run only for now)")
+    p_focus.add_argument("--project", "-p", help="Filter to one project")
+    p_focus.add_argument("--max", type=int, default=10, help="Hard cap on total items (default 10)")
+    p_focus.add_argument("--weeks", type=int, default=4, help="Freshness window in weeks (default 4)")
+
     args = parser.parse_args()
 
     if args.command == "prep":
@@ -975,6 +1108,8 @@ def main():
         cmd_review(args)
     elif args.command == "stats":
         cmd_stats(args)
+    elif args.command == "focus":
+        cmd_focus(args)
     else:
         parser.print_help()
 
