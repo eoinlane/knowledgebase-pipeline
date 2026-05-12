@@ -128,6 +128,8 @@ export_calendar "C1BAE074-A8C8-476F-A168-9680D48777BB" "$CAL_DIR/cal_home.txt"  
 export_calendar "2D0FFC84-CE8A-4467-B66D-B4F0655E4956" "$CAL_DIR/cal_extra_15.txt"      "Calendar (DCC/ADAPT)" || ERRORS=$((ERRORS + 1))
 export_calendar "3DE8357C-DA39-47BA-A8A1-01F1D3B55CF6" "$CAL_DIR/cal_nta.txt"           "Calendar (NTA)"     || ERRORS=$((ERRORS + 1))
 export_calendar "1A4BFA9C-4D8E-435A-8642-DF97D468939B" "$CAL_DIR/cal_adapt.txt"         "ADAPT (Google)"     || ERRORS=$((ERRORS + 1))
+export_calendar "69799FA9-B451-46DF-BE51-8060F9FC02C1" "$CAL_DIR/cal_tcd.txt"           "Calendar (TCD)"     || ERRORS=$((ERRORS + 1))
+export_calendar "54FBF404-942A-4A21-8A3B-2590F297EAA4" "$CAL_DIR/cal_paradigm.txt"      "Calendar (Paradigm)" || ERRORS=$((ERRORS + 1))
 
 if [ "$ERRORS" -gt 0 ]; then
     echo "$(date): Calendar export completed with $ERRORS failures" >> "$LOG"

@@ -321,6 +321,8 @@ for fname in [
     "cal_extra_15.txt",
     "cal_nta.txt",
     "cal_adapt.txt",
+    "cal_tcd.txt",
+    "cal_paradigm.txt",
     "cal_personal.txt",
     "cal_home.txt",
 ]:
@@ -400,7 +402,31 @@ DUBLIN_TZ = ZoneInfo("Europe/Dublin")
 UTC_TZ = ZoneInfo("UTC")
 
 
-def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
+_TOPIC_STOPWORDS = {
+    "the", "and", "a", "an", "of", "for", "on", "in", "to", "with", "by",
+    "discussion", "meeting", "session", "update", "call", "review", "check",
+    "weekly", "monthly", "daily", "first", "last", "kick", "off",
+}
+
+
+def _title_topic_overlap(title: str, topic: str) -> int:
+    """How many non-trivial alphabetic tokens does the recording topic share
+    with the event title? Used to break ties when multiple events occur at
+    the same time — e.g. two 16:00 meetings (DCC GenAI Lab vs AI Op Governance
+    Committee) where the recording's topic is 'AI Governance Board
+    Presentations'. Pure attendee/time scoring can't tell which is right;
+    title-topic overlap is the deciding signal.
+
+    Minimum 2 characters per token so common acronyms (AI, BI, ML) count."""
+    if not title or not topic:
+        return 0
+    def _toks(s):
+        return {t for t in re.findall(r"[A-Za-z]{2,}", s.lower())
+                if t not in _TOPIC_STOPWORDS}
+    return len(_toks(title) & _toks(topic))
+
+
+def find_meetings_by_time(recording_dt, cal_events, voice_names=None, topic=None):
     """Match a recording to calendar events by timestamp.
     recording_dt is naive UTC (from transcript header).
     Calendar event _dt is naive Dublin local time (from AppleScript/icalBuddy).
@@ -413,6 +439,11 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
     these names get a strong bonus — disambiguates overlapping calendar events
     (a recording can sit between two events in time but only one will match the
     voices in the room).
+
+    `topic` (optional): recording's LLM-classified topic. When two events occur
+    at the same time, shared non-trivial words between topic and event title
+    break the tie (e.g. 'AI Governance Board Presentations' matches 'AI
+    Operational Governance Committee' over 'DCC Gen AI Lab Weekly Check In').
 
     Returns a list of (delta_seconds_abs, score_negative, event) tuples,
     sorted best-first. The first element is the canonical match.
@@ -500,25 +531,38 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
         n_attendees = len([a for a in attendees_str.split("|")
                            if a.strip() and a.strip() != "<>"])
 
+        # Title-shape bonuses (eoin-named, catch-up, X & Y) — only apply when
+        # the recording starts within 15 min of the event start. Without this
+        # guard, a 25-min recording at 09:00 picks up a 09:30 "Stephen & Eoin
+        # Catch up" via stacked bonuses (-30 -15 -20 -25 = -90) even though the
+        # recording finished 5 min before that catch-up began. The bonuses are
+        # only legitimate when the times actually line up.
+        title_bonus_in_range = abs(diff) <= 900
+
         # Title-specificity bonus: title literally names attendees ("Alex & Eoin",
         # "eoin <> declan", "Eoin DCC Catch up"). Eoin's name in the title is
         # a strong "this is the meeting" signal vs generic block titles.
-        if eoin_pat.search(title):
+        if title_bonus_in_range and eoin_pat.search(title):
             score -= 30
         # "Catch up" / "Catch-up" / "Catchup" titles are usually 1-on-1s
-        if re.search(r"\bcatch[\s-]?up\b", title, re.I):
+        if title_bonus_in_range and re.search(r"\bcatch[\s-]?up\b", title, re.I):
             score -= 15
         # Names like "X & Y" / "X <> Y" — both-parties-in-title pattern.
         # Capped at short titles: phrase titles such as "Lab Check in &
         # Next Steps" (where "&" joins phrases, not names) shouldn't get
         # this bonus. ≤5 words covers every real 1-on-1 in the calendar
         # corpus while excluding compound-phrase false positives.
-        if (len(title.split()) <= 5
+        if (title_bonus_in_range
+                and len(title.split()) <= 5
                 and (re.search(r"\s(?:&|and|<>|vs)\s", title, re.I) or "/" in title)):
             score -= 20
 
         # Attendee count bonus: when Eoin is solo-recording, smaller meetings
         # are usually the actual recorded one. 2-3 attendees is the sweet spot.
+        # The big-meeting penalty is CAPPED — a 20-attendee board meeting and
+        # a 7-attendee lab check-in should differ by single-digit points, not
+        # 24. Without the cap, board meetings could never beat smaller
+        # concurrent events even when topic-title overlap is unambiguous.
         if n_attendees == 0:
             score += 5  # untrustworthy event with no attendees
         elif n_attendees <= 3:
@@ -526,12 +570,24 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None):
         elif n_attendees <= 6:
             score -= 5
         else:
-            score += (n_attendees - 6) * 2  # bigger meetings rank lower
+            score += min((n_attendees - 6) * 2, 10)  # cap at +10
 
         # Time penalty: events significantly displaced from recording time
         # are progressively less likely (the linear cost above isn't enough)
         if abs(diff) > 1800:
             score += 10
+
+        # Topic-title overlap: when the recording's classified topic shares
+        # distinctive words with the event title, that's a strong "this is the
+        # meeting" signal — particularly when two events sit at the same time
+        # and pure attendee/time scoring can't separate them. -15 per shared
+        # token comfortably outweighs the 2-attendee-per-head penalty on big
+        # board meetings (which would otherwise lose to a smaller concurrent
+        # event by score-of-attendee-count alone).
+        if topic:
+            overlap = _title_topic_overlap(title, topic)
+            if overlap:
+                score -= 15 * overlap
 
         # Voice-overlap bonus: dominates timestamp scoring when voices in the
         # room match an event's invitees. Two overlapping events at similar
@@ -718,7 +774,11 @@ for note in notes:
     # Find matching calendar meetings — timestamp first, then token fallback.
     # Pass confirmed voice IDs so the matcher can disambiguate overlapping events.
     voice_names = confirmed_voice_names(note["filename"])
-    meetings = find_meetings_by_time(recording_dt, unique_events, voice_names=voice_names)
+    meetings = find_meetings_by_time(
+        recording_dt, unique_events,
+        voice_names=voice_names,
+        topic=note.get("topic"),
+    )
     if not meetings:
         meetings = find_meetings(note)
 
