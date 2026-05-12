@@ -2,11 +2,11 @@
 Transcribe a single .m4a file using WhisperX with speaker diarization.
 Usage: python3 transcribe_single.py <audio_file> <output_txt>
 """
-import sys, os, json, torch, numpy as np, warnings
+import sys, os, json, subprocess, torch, numpy as np, warnings
 warnings.filterwarnings("ignore")
 import whisperx
 from whisperx.diarize import DiarizationPipeline, assign_word_speakers
-from datetime import datetime
+from datetime import datetime, timezone
 
 EMBEDDINGS_DIR = "/home/eoin/audio-inbox/Embeddings"
 
@@ -25,7 +25,35 @@ if os.path.exists(ts_file):
     with open(ts_file) as f:
         ts_map = json.load(f)
 
-recorded_at = ts_map.get(uuid, datetime.fromtimestamp(os.path.getmtime(audio_file)).strftime("%Y-%m-%d %H:%M:%S"))
+
+def _mp4_creation_time(path: str):
+    """For Apple m4a, the QuickTime 'creation_time' atom is the recording start
+    (UTC, ISO 8601). Returns 'YYYY-MM-DD HH:MM:SS' in UTC, or None.
+
+    Naive-UTC output matches the existing pipeline convention: the transcript
+    'Recorded:' header is read as UTC by mac/build_knowledge_base.py, so we
+    deliberately do NOT convert to Dublin local here. File mtime is unreliable
+    for Apple Notes audio because the file usually arrives on Ubuntu hours
+    after it was recorded; ffprobe pulls the original recording time straight
+    from the MP4 atom."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_format", "-of", "json", path],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout
+        ct = json.loads(out).get("format", {}).get("tags", {}).get("creation_time", "")
+        if not ct:
+            return None
+        dt = datetime.fromisoformat(ct.replace("Z", "+00:00")).astimezone(timezone.utc)
+        return dt.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return None
+
+
+# Resolve recording start time. Priority: explicit ts_map entry → MP4
+# creation_time atom (Apple Notes / QuickTime) → file mtime fallback.
+recorded_at = ts_map.get(uuid) or _mp4_creation_time(audio_file) \
+    or datetime.fromtimestamp(os.path.getmtime(audio_file)).strftime("%Y-%m-%d %H:%M:%S")
 
 print(f"Loading model for {uuid}...")
 model = whisperx.load_model("large-v3", device=DEVICE, compute_type=COMPUTE_TYPE)
