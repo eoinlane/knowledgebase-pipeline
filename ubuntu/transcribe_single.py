@@ -92,9 +92,31 @@ except Exception as e:
 diarize_segments = diarize_model(audio)
 result = assign_word_speakers(diarize_segments, result)
 
+# Audio duration (real, from ffprobe) and transcript end (last segment) — surfaced
+# in the transcript header so the Mac build can flag partial recordings. iCloud
+# sometimes exports only the first N seconds of an Apple Notes audio file; without
+# this, the pipeline silently produces a transcript that misses most of the meeting.
+def _audio_duration_seconds(path: str) -> float:
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=10, check=True,
+        ).stdout.strip()
+        return float(out) if out else 0.0
+    except Exception:
+        return 0.0
+
+
+audio_duration = _audio_duration_seconds(audio_file)
+transcript_end = max((seg.get("end", seg.get("start", 0.0))
+                      for seg in result["segments"]), default=0.0)
+
 with open(out_path, "w") as f:
     f.write(f"File: {uuid}\n")
     f.write(f"Recorded: {recorded_at}\n")
+    f.write(f"Duration: {audio_duration:.2f}\n")
+    f.write(f"Transcript-end: {transcript_end:.2f}\n")
     f.write("-" * 60 + "\n\n")
     for seg in result["segments"]:
         speaker = seg.get("speaker", "UNKNOWN")

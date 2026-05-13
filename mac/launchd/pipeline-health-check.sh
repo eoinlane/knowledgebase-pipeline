@@ -192,4 +192,25 @@ if [ -f "$CSV_PATH" ]; then
     fi
 fi
 
+# ── 7. Surface partial-audio + missing-transcript flags from build ──────────
+# build_knowledge_base.py marks `audio_incomplete: true` in frontmatter when a
+# recording's transcript ends before 80% of the audio duration (Apple Notes
+# iCloud sometimes exports only the first N seconds of a long recording). It
+# also writes UUIDs whose transcripts didn't sync to ~/.local/share/kb/.
+# Without this probe both signals stay invisible (audit A8).
+INCOMPLETE_COUNT=$(grep -lr 'audio_incomplete: true' /Users/eoin/knowledge_base/meetings 2>/dev/null | wc -l | tr -d ' ')
+if [ "${INCOMPLETE_COUNT:-0}" -gt 0 ]; then
+    log "Partial-audio meetings: ${INCOMPLETE_COUNT}"
+    [ "${INCOMPLETE_COUNT}" -gt 3 ] && alert "Partial audio" "${INCOMPLETE_COUNT} meetings flagged audio_incomplete — Apple Notes export likely truncated"
+fi
+
+MISSING_FILE="/Users/eoin/.local/share/kb/missing_transcripts.txt"
+if [ -f "$MISSING_FILE" ]; then
+    MISSING_COUNT=$(grep -cv '^#' "$MISSING_FILE" 2>/dev/null || echo 0)
+    if [ "${MISSING_COUNT:-0}" -gt 0 ]; then
+        log "Missing transcripts: ${MISSING_COUNT}"
+        [ "${MISSING_COUNT}" -gt 3 ] && alert "Transcripts missing" "${MISSING_COUNT} CSV rows have no transcript on the Mac — see missing_transcripts.txt"
+    fi
+fi
+
 log "--- Health check done (pending=${PENDING}, newest=${NEWEST_AGE}h, skips=${RECENT_SKIPS}/${RECENT_RUNS}) ---"

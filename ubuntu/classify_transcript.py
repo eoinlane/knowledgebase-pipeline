@@ -137,7 +137,53 @@ except json.JSONDecodeError as e:
     print(f"JSON decode error: {e}\nRaw: {raw}", file=sys.stderr)
     sys.exit(1)
 
-category   = classification.get("category", "other:blank")
+# Validate category against the enumerated set. Previously this defaulted to
+# 'other:blank' on any missing/invalid value, which silently dropped meetings
+# from the KB (build_knowledge_base.py filters other:blank). Now we exit non-zero
+# so the watchdog retries, and an off-list value gets one chance to come back
+# corrected before we accept it.
+VALID_CATEGORIES = {
+    "NTA", "DCC", "Diotima", "ADAPT", "TBS", "Paradigm",
+    "other:blank", "other:personal", "other:conference", "other:lgma",
+}
+
+category = classification.get("category")
+if not category:
+    print(f"Classification missing 'category' field — refusing to default. Raw: {raw}",
+          file=sys.stderr)
+    sys.exit(2)
+if category not in VALID_CATEGORIES:
+    # Retry once with a stricter prompt that names the valid set explicitly.
+    print(f"  LLM returned off-list category {category!r}; retrying with stricter prompt",
+          file=sys.stderr)
+    strict_messages = messages + [
+        {"role": "assistant", "content": raw},
+        {"role": "user", "content":
+            f"That category is not in the allowed set. "
+            f"Pick exactly one of: {sorted(VALID_CATEGORIES)}. "
+            f"Respond with only the JSON object."},
+    ]
+    try:
+        raw2 = call_ollama(strict_messages) if model_used == MODEL else call_litellm(strict_messages)
+    except Exception as e:
+        print(f"  Retry failed: {e}", file=sys.stderr)
+        sys.exit(3)
+    raw2 = re.sub(r"<think>.*?</think>", "", raw2, flags=re.DOTALL).strip()
+    json_match2 = re.search(r"\{.*\}", raw2, re.DOTALL)
+    if not json_match2:
+        print(f"  Retry produced no JSON. Raw: {raw2}", file=sys.stderr)
+        sys.exit(3)
+    try:
+        classification = json.loads(json_match2.group())
+    except json.JSONDecodeError as e:
+        print(f"  Retry JSON decode error: {e}\nRaw: {raw2}", file=sys.stderr)
+        sys.exit(3)
+    category = classification.get("category")
+    if category not in VALID_CATEGORIES:
+        print(f"  Retry also returned invalid category {category!r}. Giving up.",
+              file=sys.stderr)
+        sys.exit(3)
+
 topic      = classification.get("topic", "")
 summary    = classification.get("summary", "")
 key_people = classification.get("key_people", "")

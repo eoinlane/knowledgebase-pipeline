@@ -203,7 +203,7 @@ def process_transcript(txt_path, csv_path, force=False):
     if csv_path and os.path.exists(csv_path):
         with open(csv_path) as f:
             for row in csv.reader(f):
-                if len(row) >= 6 and uuid in row[0]:
+                if len(row) >= 6 and row[0] == uuid:
                     category = row[2]
                     topic = row[5]
                     # key_people is column 4 (semicolon or comma separated)

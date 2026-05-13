@@ -138,20 +138,30 @@ def reclassify(txt_path, csv_path, dry_run=False):
     with open(csv_path) as f:
         for i, row in enumerate(csv.reader(f)):
             rows.append(row)
-            if len(row) >= 3 and uuid in row[0]:
+            if len(row) >= 3 and row[0] == uuid:
                 current_cat = row[2]
                 csv_row_idx = i
 
     if current_cat is None or csv_row_idx is None:
         return None
 
-    # Don't override personal/conference/blank
-    if current_cat in KEEP_CATEGORIES:
-        return None
-
     new_cat, confidence, matched = infer_category(speakers)
     if not new_cat or new_cat == current_cat:
         return None
+
+    # Refuse to override KEEP_CATEGORIES unless voice-ID gives us a strong,
+    # consensus signal — at least 2 high-confidence speakers all pointing at
+    # one specific (non-other:*) category. Without this carve-out, an LLM
+    # misclassification of e.g. Paradigm calls as other:personal stayed
+    # locked in forever (audit finding A4).
+    if current_cat in KEEP_CATEGORIES:
+        high_conf_matches = [(s, c) for s, c in matched if c == "high"]
+        if not (new_cat and ":" not in new_cat
+                and len(high_conf_matches) >= 2):
+            return None
+        print(f"  Overriding KEEP_CATEGORY {current_cat!r} → {new_cat!r}: "
+              f"{len(high_conf_matches)} high-confidence voice matches "
+              f"({', '.join(s for s, _ in high_conf_matches)})")
 
     if dry_run:
         return {

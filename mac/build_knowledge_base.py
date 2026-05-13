@@ -450,7 +450,16 @@ def find_meetings_by_time(recording_dt, cal_events, voice_names=None, topic=None
     """
     if not recording_dt:
         return []
-    rec_aware = recording_dt.replace(tzinfo=UTC_TZ)
+    # Apple Notes path writes the transcript header in UTC (m4a creation_time
+    # atom); Plaud path encodes Dublin local time in the filename. The Plaud
+    # branch in find_meetings() now tags its datetime with DUBLIN_TZ; respect
+    # an existing tzinfo here rather than blindly applying UTC. Without this,
+    # every Plaud recording during BST landed in the calendar window an hour
+    # off and silently matched the wrong event (audit finding A1).
+    if recording_dt.tzinfo is None:
+        rec_aware = recording_dt.replace(tzinfo=UTC_TZ)
+    else:
+        rec_aware = recording_dt
     rec_dublin = rec_aware.astimezone(DUBLIN_TZ).replace(tzinfo=None)
     voice_names = voice_names or set()
 
@@ -729,6 +738,33 @@ generated = 0
 skipped = 0
 
 all_note_metadata = []  # for index file
+_missing_transcripts: list[str] = []  # UUIDs we couldn't load transcripts for
+
+
+# Duplicate-recording detection: when the user taps record twice on the same
+# conversation, both copies sync through the pipeline and produce near-identical
+# transcripts. Compare the first 30s of every transcript (normalised tokens);
+# if two share ≥80% AND were recorded within 5 min of each other, mark the
+# shorter as duplicate_of the longer.
+_DUP_OPEN_WINDOW_SEC = 30.0
+_DUP_TIME_WINDOW_SEC = 5 * 60
+_DUP_TOKEN_JACCARD = 0.8
+_dup_token_cache = {}  # filename_base → (recording_dt, audio_duration, frozenset(tokens))
+_duplicate_of = {}     # filename_base → filename_base it duplicates
+
+
+def _opening_tokens(transcript_body: str) -> frozenset:
+    """Tokens from segments whose start time is within DUP_OPEN_WINDOW_SEC."""
+    tokens: set[str] = set()
+    for m in re.finditer(r"^\[[^\]]+\]\s+(\d+):(\d+)\s+-\s+(.*)$",
+                         transcript_body, flags=re.M):
+        start_sec = int(m.group(1)) * 60 + int(m.group(2))
+        if start_sec > _DUP_OPEN_WINDOW_SEC:
+            break
+        for tok in re.findall(r"[a-z']{3,}", m.group(3).lower()):
+            tokens.add(tok)
+    return frozenset(tokens)
+
 
 for note in notes:
     # Strip any audio/text extension to get the bare stem
@@ -742,6 +778,7 @@ for note in notes:
         raw = icloud_read(transcript_path, errors="replace")
     except FileNotFoundError:
         skipped += 1
+        _missing_transcripts.append(note["filename"])
         continue
 
     # Parse recording date/time from transcript header
@@ -754,22 +791,75 @@ for note in notes:
             pass
 
     # For Plaud recordings: filename IS the recording timestamp (YYYY-MM-DD_HH_MM_SS)
-    # Override the transcript header (which may reflect transcription time, not recording time)
+    # in Dublin LOCAL time (device clock). Tag with DUBLIN_TZ so the matcher's
+    # UTC→Dublin conversion is a no-op rather than a one-hour shift (audit A1).
     plaud_match = re.match(r"(\d{4}-\d{2}-\d{2})_(\d{2})_(\d{2})_(\d{2})", filename_base)
     if plaud_match:
         try:
             plaud_dt = datetime.strptime(
                 f"{plaud_match.group(1)} {plaud_match.group(2)}:{plaud_match.group(3)}:{plaud_match.group(4)}",
                 "%Y-%m-%d %H:%M:%S"
-            )
+            ).replace(tzinfo=DUBLIN_TZ)
             recording_dt = plaud_dt
             # Also override CSV date with the Plaud filename date
             note["_date"] = plaud_dt.date()
-        except:
+        except (ValueError, TypeError):
+            pass
+
+    # Audio duration + transcript end (from transcribe_single.py header lines).
+    # Used to detect partial transcripts — iCloud occasionally exports only the
+    # first N seconds of a long Apple Notes recording, the pipeline transcribes
+    # what's there, and the rest of the meeting silently goes missing. Older
+    # transcripts predate these headers and will have 0.0 for both.
+    audio_duration = 0.0
+    transcript_end = 0.0
+    dur_match = re.search(r"^Duration:\s*([\d.]+)", raw, flags=re.M)
+    if dur_match:
+        try:
+            audio_duration = float(dur_match.group(1))
+        except ValueError:
+            pass
+    end_match = re.search(r"^Transcript-end:\s*([\d.]+)", raw, flags=re.M)
+    if end_match:
+        try:
+            transcript_end = float(end_match.group(1))
+        except ValueError:
             pass
 
     # Strip the file header from transcript body
     transcript_body = re.sub(r"^File:.*?\n-{20,}\n", "", raw, flags=re.DOTALL).strip()
+
+    # Duplicate detection: compute opening-30s token set, compare against all
+    # earlier recordings within ±5 min and ≥80% token overlap. Mark the shorter
+    # recording as a duplicate of the longer; both files still get built so
+    # nothing disappears silently, but downstream consumers can filter.
+    # Normalise to naive UTC for the time comparison — Plaud recording_dt
+    # is tz-aware (Dublin), Apple Notes recording_dt is tz-naive UTC.
+    def _to_utc_naive(dt):
+        if dt is None:
+            return None
+        if dt.tzinfo is None:
+            return dt
+        return dt.astimezone(UTC_TZ).replace(tzinfo=None)
+    _rec_utc = _to_utc_naive(recording_dt)
+    if _rec_utc:
+        _open_toks = _opening_tokens(transcript_body)
+        if len(_open_toks) >= 5:  # below 5 tokens, overlap is noise
+            for _other_fn, (_other_dt, _other_dur, _other_toks) in _dup_token_cache.items():
+                if not _other_toks or len(_other_toks) < 5:
+                    continue
+                if abs((_rec_utc - _other_dt).total_seconds()) > _DUP_TIME_WINDOW_SEC:
+                    continue
+                _inter = len(_open_toks & _other_toks)
+                _union = len(_open_toks | _other_toks)
+                if _union and _inter / _union >= _DUP_TOKEN_JACCARD:
+                    # Keep the longer recording as the canonical one
+                    if audio_duration > _other_dur:
+                        _duplicate_of[_other_fn] = filename_base
+                    else:
+                        _duplicate_of[filename_base] = _other_fn
+                    break
+        _dup_token_cache[filename_base] = (_rec_utc, audio_duration, _open_toks)
 
     # Find matching calendar meetings — timestamp first, then token fallback.
     # Pass confirmed voice IDs so the matcher can disambiguate overlapping events.
@@ -985,6 +1075,20 @@ for note in notes:
         mtg_titles = ", ".join(f'"{m[2]["TITLE"]}"' for m in meetings)
         lines.append(f'meetings: [{mtg_titles}]')
     lines.append(f'source_file: {note["filename"]}')
+
+    # Audio completeness — surface real durations and flag suspected partial
+    # transcripts. Pre-fix recordings have audio_duration=0; skip the block
+    # for those rather than emitting confusing zeros.
+    if audio_duration > 0:
+        complete_pct = (transcript_end / audio_duration * 100) if audio_duration else 0
+        lines.append(f'audio_duration_seconds: {audio_duration:.0f}')
+        lines.append(f'transcript_end_seconds: {transcript_end:.0f}')
+        lines.append(f'audio_complete_pct: {complete_pct:.0f}')
+        # Flag partials: audio >60s and transcript ends before 80% of audio.
+        # Under 60s is usually a brief accidental tap, not worth flagging.
+        if audio_duration > 60 and complete_pct < 80:
+            lines.append('audio_incomplete: true')
+
     lines.append("---")
     lines.append("")
 
@@ -1115,6 +1219,143 @@ for note in notes:
         print(f"  Generated {generated}...")
 
 print(f"\nGenerated {generated} markdown files ({skipped} skipped)")
+
+# Surface which transcripts went missing so a downstream health check can
+# alarm on persistent gaps (audit A7). The file is rewritten every build,
+# so stale entries auto-clear once the transcript lands.
+_missing_path = os.path.expanduser("~/.local/share/kb/missing_transcripts.txt")
+os.makedirs(os.path.dirname(_missing_path), exist_ok=True)
+with open(_missing_path, "w") as _f:
+    _f.write(f"# Generated by build_knowledge_base.py at "
+             f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    _f.write(f"# {len(_missing_transcripts)} CSV row(s) had no transcript on the Mac.\n")
+    for u in _missing_transcripts:
+        _f.write(f"{u}\n")
+if _missing_transcripts:
+    print(f"  ⚠️  {len(_missing_transcripts)} transcript(s) missing — see {_missing_path}")
+    for u in _missing_transcripts[:5]:
+        print(f"     · {u}")
+    if len(_missing_transcripts) > 5:
+        print(f"     · … and {len(_missing_transcripts) - 5} more")
+
+# ── Duplicate-recording stamping ──────────────────────────────────────────────
+# Annotate each duplicate's frontmatter with `duplicate_of:` pointing at its
+# canonical sibling. Detection happened during the build loop; this pass writes
+# the marker. Downstream tools can filter (e.g. graph build can skip duplicates
+# so the same action item doesn't appear twice).
+if _duplicate_of:
+    print(f"Marking {len(_duplicate_of)} duplicate recording(s)...")
+    _meetings_dir = os.path.join(OUTPUT_DIR, "meetings")
+    _by_uuid_paths = {}
+    for _fn in os.listdir(_meetings_dir):
+        if not _fn.endswith(".md"):
+            continue
+        _p = os.path.join(_meetings_dir, _fn)
+        try:
+            with open(_p) as _f:
+                _t = _f.read()
+        except OSError:
+            continue
+        _src = re.search(r"^source_file:\s*(\S+)", _t, re.M)
+        if _src:
+            _by_uuid_paths[_src.group(1)] = _p
+    for _dup_uuid, _canon_uuid in _duplicate_of.items():
+        _path = _by_uuid_paths.get(_dup_uuid)
+        if not _path or not os.path.exists(_path):
+            continue
+        with open(_path) as _f:
+            _content = _f.read()
+        if "duplicate_of:" in _content:
+            continue  # idempotent
+        _content = _content.replace(
+            f"source_file: {_dup_uuid}",
+            f"source_file: {_dup_uuid}\nduplicate_of: {_canon_uuid}",
+            1,
+        )
+        with open(_path, "w") as _f:
+            _f.write(_content)
+
+# ── Suspicious-classification review queue ────────────────────────────────────
+# The LLM classifier mistags substantive business meetings as `other:personal`
+# or `other:blank` when the opening seconds are conversational banter or short.
+# We've hit this with Paradigm/Jamie calls, DCC GenAI Lab meetings at Stephen
+# Patterson's office, and the AI Governance intro. Walk the just-built KB and
+# write a single-page review queue of suspicious cases so Eoin can spot
+# misclassifications without scanning the whole KB.
+print("Building suspicious-classification review queue...")
+_review_dir = os.path.join(OUTPUT_DIR, "_reviews")
+os.makedirs(_review_dir, exist_ok=True)
+_verify_path = os.path.join(_review_dir, "verify_queue.md")
+_meetings_dir = os.path.join(OUTPUT_DIR, "meetings")
+_suspicious = []
+for _fname in sorted(os.listdir(_meetings_dir)):
+    if not _fname.endswith(".md"):
+        continue
+    _path = os.path.join(_meetings_dir, _fname)
+    try:
+        with open(_path) as _f:
+            _front = _f.read(4000)
+    except OSError:
+        continue
+    _cat = re.search(r"^category:\s*(\S+)", _front, re.M)
+    _cat_v = _cat.group(1).strip() if _cat else ""
+    if _cat_v not in ("other:personal", "other:blank"):
+        continue
+    _dur = re.search(r"^audio_duration_seconds:\s*(\d+)", _front, re.M)
+    _dur_v = int(_dur.group(1)) if _dur else 0
+    # Fallback for backlog transcripts that predate the Duration: header —
+    # use the timestamp on the last segment of the transcript body.
+    if _dur_v == 0:
+        try:
+            with open(_path) as _full:
+                _full_text = _full.read()
+        except OSError:
+            _full_text = ""
+        _last_seg = None
+        for _m in re.finditer(r"^\[[^\]]+\]\s+(\d+):(\d+)\s+-",
+                              _full_text, flags=re.M):
+            _last_seg = _m
+        if _last_seg:
+            _dur_v = int(_last_seg.group(1)) * 60 + int(_last_seg.group(2))
+    if _dur_v <= 300:  # <5 min — usually genuinely incidental
+        continue
+    _att = re.search(r"^attendees:\s*\[(.*?)\]", _front, re.M)
+    _att_v = _att.group(1) if _att else ""
+    # Real attendees (not bare SPEAKER_XX) → likely a real meeting in disguise
+    _real_speakers = any(
+        a.strip('"\' ') and "SPEAKER_" not in a
+        for a in _att_v.split(",") if a.strip()
+    )
+    if not _real_speakers:
+        continue
+    _topic = re.search(r'^topic:\s*"(.*?)"', _front, re.M)
+    _rec = re.search(r'^recorded:\s*"(.*?)"', _front, re.M)
+    _suspicious.append({
+        "filename": _fname,
+        "recorded": _rec.group(1) if _rec else "?",
+        "category": _cat_v,
+        "topic": _topic.group(1) if _topic else "(no topic)",
+        "duration_min": _dur_v // 60,
+        "attendees": _att_v[:80] + ("…" if len(_att_v) > 80 else ""),
+    })
+
+with open(_verify_path, "w") as _f:
+    _f.write("# Verify Queue: suspicious classifications\n\n")
+    _f.write(f"Generated by build_knowledge_base.py at "
+             f"{datetime.now().strftime('%Y-%m-%d %H:%M')}.\n\n")
+    _f.write(f"{len(_suspicious)} meetings flagged. Heuristic: "
+             "category in {other:personal, other:blank}, audio > 5 min, "
+             "≥1 identifiable speaker.\n\n")
+    if _suspicious:
+        _f.write("| Recorded | Cat | Topic | Duration | Attendees | File |\n")
+        _f.write("|---|---|---|---|---|---|\n")
+        for s in _suspicious:
+            _f.write(f"| {s['recorded']} | `{s['category']}` | {s['topic']} "
+                     f"| {s['duration_min']}min | {s['attendees']} "
+                     f"| [{s['filename']}](../meetings/{s['filename']}) |\n")
+    else:
+        _f.write("_None flagged this run._\n")
+print(f"  {len(_suspicious)} suspicious meetings → {_verify_path}")
 
 # ── Orphan cleanup ────────────────────────────────────────────────────────────
 # Filenames embed the meeting's category and slug, both of which can change
