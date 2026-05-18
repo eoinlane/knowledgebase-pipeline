@@ -1020,9 +1020,13 @@ for note in notes:
         if len(attendee_categories) == 1:
             note["category"] = attendee_categories.pop()
 
-    # Build output filename: date_category_slug.md
+    # Build output filename: date_time_category_slug.md. Time includes seconds
+    # (HHMMSS) so two recordings made within the same minute, same category,
+    # same topic don't collide — the previous HHMM format caused the second
+    # write to silently overwrite the first, and 26 mid-March 2026 meetings
+    # disappeared from the KB this way until the audit caught it.
     date_str = note["_date"].strftime("%Y-%m-%d")
-    time_str = recording_dt.strftime("%H%M") if recording_dt else "0000"
+    time_str = recording_dt.strftime("%H%M%S") if recording_dt else "000000"
     category = note["category"].replace(":", "_")
     topic_slug = slugify(note.get("topic", "note") or "note")
     out_filename = f"{date_str}_{time_str}_{category}_{topic_slug}.md"
@@ -1199,6 +1203,23 @@ for note in notes:
     lines.append("")
 
     content = "\n".join(lines)
+
+    # Filename-collision safety: two different recordings sometimes share
+    # exact date+time+category+slugified-topic (same meeting recorded twice,
+    # or two phones in the room). Without this guard the second write
+    # overwrites the first, deleting it from the KB permanently. If the
+    # target path already exists with a DIFFERENT source_file UUID, append
+    # the first 6 chars of this UUID to the slug to disambiguate.
+    if os.path.exists(out_path):
+        existing = Path(out_path).read_text()
+        _m = re.search(r"^source_file:\s*(\S+)", existing, re.M)
+        existing_uuid = re.sub(r"\.(txt|m4a|mp3)$", "", _m.group(1)) if _m else ""
+        this_uuid = re.sub(r"\.(txt|m4a|mp3)$", "", note["filename"])
+        if existing_uuid and existing_uuid != this_uuid:
+            short = this_uuid.split("-")[0][:6].lower()
+            out_filename = f"{date_str}_{time_str}_{category}_{topic_slug}_{short}.md"
+            out_path = os.path.join(OUTPUT_DIR, "meetings", out_filename)
+
     if not os.path.exists(out_path) or Path(out_path).read_text() != content:
         with open(out_path, "w") as f:
             f.write(content)
@@ -1376,7 +1397,15 @@ for _f in os.listdir(_kb_meetings):
     _path = os.path.join(_kb_meetings, _f)
     try:
         with open(_path, errors="replace") as _fh:
-            _text = _fh.read(4096)  # frontmatter only
+            # Read until the closing frontmatter delimiter. The previous 4096-
+            # char cap missed `source_file:` on mass-attendee meetings (DCC
+            # Building Control etc.) where the attendees list alone runs >5KB.
+            # Those files then escaped orphan cleanup and accumulated.
+            _text = ""
+            for _line in _fh:
+                _text += _line
+                if _text.count("---") >= 2:
+                    break
     except OSError:
         continue
     _src_m = re.search(r"^source_file:\s*(\S+)", _text, re.MULTILINE)
