@@ -43,18 +43,33 @@ python3 ~/query_graph.py done "send slides"             # close by text match
 python3 ~/query_graph.py decisions --project NTA        # decisions by project
 python3 ~/query_graph.py history "Jamie Cudden"         # meeting history
 python3 ~/query_graph.py stats                          # graph overview
-python3 ~/query_graph.py focus                          # curated dry-run for Apple Reminders push
+python3 ~/query_graph.py focus                          # curated dry-run for Apple Reminders (add --push to write)
 python3 ~/query_graph.py brief                          # daily morning brief (today's meetings + per-attendee last commitment)
+python3 ~/query_graph.py stale-nudge                    # Friday weekly: your open items older than 3 weeks
+python3 ~/query_graph.py context "Pat Nestor"           # compact context block for outbound email/chat
+python3 ~/query_graph.py open --project NTA --by-date   # legacy date-desc ordering (default is priority-bucketed)
 ```
 
-**Daily morning brief (added 2026-05-22):**
-- `query_graph.py brief` runs the day's brief: today's calendar meetings with per-attendee last open commitment, Eoin's open items from last 2 weeks, and 2–4 week-old items owed to Eoin.
-- Launchd agent `com.eoin.morning-brief` fires at 06:30 daily, writing to `~/morning_brief.md` (stable path) plus `~/knowledge_base/_briefs/YYYY-MM-DD.md` (archive).
-- Reads `graph.db` (rebuilt nightly at 04:00) and `~/.local/share/kb/calendars/cal_*.txt`. Stable path is the "read with coffee" file; archive is for history/diff.
+**Daily morning brief (added 2026-05-22, email added 2026-05-23):**
+- `query_graph.py brief` runs the day's brief: today's calendar meetings with per-attendee last open commitment, Eoin's open items from last 2 weeks, items closed in the last 24h, and 2–4 week-old items owed to Eoin. Calendar attendees are cleaned (drops PS4/HR/All-in-NTA/To:X noise, titlecases email-prefix names). Personal + Home calendars excluded at source.
+- Launchd agent `com.eoin.morning-brief` fires at 06:30 daily. Writes `~/morning_brief.md` (stable path) + `~/knowledge_base/_briefs/YYYY-MM-DD.md` (archive) + emails to `eoinlane@gmail.com` via Gmail SMTP (app password in macOS keychain, service `morning-brief-smtp`). Sender at `mac/morning_brief_emailer.py` (reusable, takes `--file` + `--subject`).
 
-**Apple Reminders integration (in progress as of 2026-05-09):**
-- `query_graph.py focus` is the curation validator (dry-run only). Eoin-owned items, fresh (4-week window), excluded projects (`other:personal`, `FutureBusiness` by default), quality filter (drops weak-verb + summary-boilerplate items), max 3 per project, hard cap 10 total, plus a "Today" cross-cut of top 3 by recording date.
-- Apple Reminders MCP installed locally on this Mac. The `--push` wiring isn't built yet — design and tuning issues captured in memory dossier `project_apple_reminders_integration.md`. Push goes one-way (graph → Reminders); a future `sync-completions` write-back maps completed reminders to `~/.graph_closures.json`.
+**Weekly stale-commitment nudge (added 2026-05-24):**
+- `query_graph.py stale-nudge` surfaces Eoin-owned open commitments older than 3 weeks. Top 3 per project, hard cap 15. Companion to the daily brief — catches things you've quietly dropped.
+- Launchd agent `com.eoin.stale-nudge` fires Friday 06:30. Output: `~/stale_nudge.md` (stable) + `~/knowledge_base/_nudges/YYYY-MM-DD.md` (archive) + email via the same sender as the morning brief.
+
+**Weekly benchmark + regression alert (added 2026-05-24):**
+- `mac/launchd/weekly-benchmark.sh` runs `tools/benchmark_models.py` against the 8-transcript curated suite for `qwen2.5:14b` (Ollama, classify primary) and `claude-haiku-4-5` (LiteLLM, insights primary), then diffs vs the previous run for each model.
+- Launchd agent `com.eoin.weekly-benchmark` fires Sunday 02:00 IST (before 04:00 nightly rebuild). Regression rules: exact-accuracy drops OR avg wall +25%. On regression: emails `~/weekly_benchmark_report.md`. Silent on clean.
+- Locks in the prompt + model-pinning gains so silent drift gets caught.
+
+**Apple Reminders integration:**
+- `query_graph.py focus` curates the focus list; `--push` writes to Apple Reminders via `mac/apple_reminders.py` (osascript helpers — no MCP dependency from the CLI). Lists are `KB:<project>` + `KB:Today`. Dedupes via `[kb-id]` line in each reminder's notes. KB:Today is rolling (stale entries pruned each push); per-project lists are append-only.
+- Curation rules: Eoin-owned items, fresh (4-week window), excluded projects (`other:personal`, `FutureBusiness` by default), quality filter (drops weak-verb + summary-boilerplate items), max 3 per project, hard cap 10 total, plus a "Today" cross-cut of top 3 by recording date.
+- Write-back (completed reminders → `~/.graph_closures.json`) is the remaining piece. Design captured in memory dossier `project_apple_reminders_integration.md`.
+
+**Outbound email context (added 2026-05-24):**
+- `query_graph.py context "Person Name"` outputs a compact markdown block — last meeting date + cadence + the most-recent open commitments both ways + recent decisions from joint meetings. Designed to load before drafting outbound email/chat to that person, so commitments don't get missed and tone stays grounded.
 
 **Contacts web UI:**
 ```bash
@@ -112,7 +127,7 @@ Scripts in **`ubuntu/`** (GPU required): `transcribe_single.py`, `classify_trans
 
 Scripts in **`mac/`**: `build_knowledge_base.py`, `build_contacts_db.py`, `build_graph.py`, `query_graph.py`, `contacts_viewer.py`, `apply_kb_corrections.py`, `process_inbox.py`, `upload_knowledge_base_incremental.py`.
 
-**`shared/config.py`** has OLLAMA_URL, MODEL, PERSON_CATEGORY (person→category mapping), KEEP_CATEGORIES. **`shared/name_expansions.py`** has WhisperX mishearing→full name tables per category. Both imported by Ubuntu and Mac scripts with fallback to hardcoded values.
+**`shared/config.py`** has OLLAMA_URL, MODEL, PERSON_CATEGORY (person→category mapping), KEEP_CATEGORIES, `WHISPER_INITIAL_PROMPT` (decoder name-biasing), `HAIKU_MODEL`/`SONNET_MODEL`/`LITELLM_URL[_REMOTE]` (pinned Anthropic via LiteLLM), `OLLAMA_MODEL_DIGEST_EXPECTED` (qwen2.5:14b sha256 for drift detection). **`shared/name_expansions.py`** has WhisperX mishearing→full name tables per category. **`shared/prompts.py`** owns `CLASSIFY_SYSTEM_PROMPT` (single source of truth — imported by both `ubuntu/classify_transcript.py` and `tools/benchmark_models.py`). All `shared/*` modules imported by Ubuntu and Mac scripts with fallback to hardcoded values.
 
 ### Data Flow
 
@@ -276,7 +291,7 @@ The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"`
 | Component | Details |
 |---|---|
 | Ubuntu | `eoin@nvidiaubuntubox`, Tailscale `100.121.184.27`, SSH key auth, password `el`. MagicDNS is off tailnet-wide (preserves AdGuard filtering); the Mac resolves the hostname via `~/.ssh/config` alias to the Tailscale IP |
-| LiteLLM proxy | Ubuntu port 4000, models: `claude-sonnet-4-6`, `claude-haiku-4-5` |
+| LiteLLM proxy | Ubuntu port 4000, models: `claude-sonnet-4-6`, `claude-haiku-4-5` (pinned to `claude-haiku-4-5-20251001` in `/home/eoin/litellm-config.yaml`). User `eoin` has `loginctl enable-linger` set since 2026-05-24 — without it, the user-systemd manager died when the last SSH session disconnected and took litellm with it. |
 | ollama-box | `192.168.0.70:11434`, Debian 13 bhyve VM on FreeBSD (192.168.0.14), RTX 4060 8GB, `qwen2.5:14b` (~8 tok/s, ~13s/classification). Start VM: `ssh eoin@192.168.0.14 "echo el \| sudo -S vm start ollama-box"` |
 | WhisperX | Ubuntu RTX 5060 Ti 16GB, model `large-v3`, CUDA float16. `watch-and-transcribe.sh` handles new files via inotify; `watchdog-transcribe.sh` runs every 30 min via systemd timer to catch misses and retry failed classifications |
 | WhisperX env | Ubuntu `~/whisper-env/` — always activate before running transcription scripts |

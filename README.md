@@ -11,7 +11,8 @@ Automated pipeline that turns iPhone/Mac voice recordings into a searchable know
 5. **Extracts insights** — action items (with owners), decisions, follow-ups, open questions via Claude Haiku
 6. **Builds KB** — markdown files per meeting, per person, and per topic — matched against Apple Calendar events
 7. **Builds graph** — queryable knowledge graph: action items, decisions, people, entity resolution
-8. **Queries** — via Claude Code + query_graph.py (prep, review, synthesise, tags, open, done)
+8. **Queries** — via Claude Code + query_graph.py (prep, review, synthesise, tags, open, done, brief, stale-nudge, context, focus)
+9. **Push surfaces** — daily morning brief at 06:30 and Friday stale-commitment nudge, both emailed; weekly Sunday benchmark with auto-regression alert; Apple Reminders curation via `focus --push`
 
 ### Knowledge Graph (Second Brain layer)
 
@@ -23,17 +24,24 @@ python3 ~/query_graph.py synthesise "Pat Nestor"       # progressive summary (pe
 python3 ~/query_graph.py synthesise --project NTA      # progressive summary (project)
 python3 ~/query_graph.py tags                          # top tags across all projects
 python3 ~/query_graph.py tags "digital twin"           # find meetings by topic
-python3 ~/query_graph.py open --project DCC            # open action items
-python3 ~/query_graph.py done 42                       # close item by ID
+python3 ~/query_graph.py open --project DCC            # open items (priority-bucketed: Fresh/Warm/Cool/Cold)
+python3 ~/query_graph.py open --project DCC --by-date  # legacy strict-date ordering
+python3 ~/query_graph.py done 42                       # close item by ID (writes closed_at)
 python3 ~/query_graph.py decisions --project NTA       # decisions by project
 python3 ~/query_graph.py history "Jamie Cudden"        # meeting history
+python3 ~/query_graph.py brief                         # today's meetings + open items + closed-in-24h
+python3 ~/query_graph.py stale-nudge                   # your commitments older than 3 weeks
+python3 ~/query_graph.py context "Pat Nestor"          # compact context block for outbound email
+python3 ~/query_graph.py focus --push                  # curated push to Apple Reminders
 ```
 
-- **5,348 action items** (3,031 open), **4,517 decisions**, **1,357 people across 841 meetings** (counts from 2026-04-27 rebuild)
-- Entity resolution merges WhisperX mishearings, first-name-only → full names; an LLM judgment layer (`entity_resolver_agent.py`) annotates each candidate pair with a `merge`/`distinct`/`ambiguous` verdict via Claude Haiku, surfaced on the contacts viewer's `/review` page
-- Auto-ages stale items (8 weeks), manual closures persist across rebuilds
-- Progressive summarisation via Claude Haiku — trajectory narratives that build on prior syntheses
-- Weekly review: meetings, commitments, decisions, overdue items, people gone quiet
+- **5,500+ action items**, **4,600+ decisions**, **1,200+ people across 830+ meetings** (counts grow daily)
+- Classify prompt accuracy 7/8 on the 8-transcript curated suite (5/8 before 2026-05-24 prompt fix). Single source of truth at `shared/prompts.py`. Weekly Sunday benchmark agent diffs against the previous run and emails on regression.
+- Entity resolution merges WhisperX mishearings, first-name-only → full names; LLM judgment layer (`entity_resolver_agent.py`) drains 200 candidates/night with `merge`/`distinct`/`ambiguous` verdicts via Claude Haiku, surfaced on `/review` for human sign-off.
+- Auto-ages stale items (8 weeks), manual closures persist across rebuilds via `~/.graph_closures.json` with timestamps.
+- Open items default to priority order — item age × relationship recency. 2024 commitments from people you haven't seen since stop dominating the list.
+- Progressive summarisation via Claude Haiku — trajectory narratives that build on prior syntheses.
+- Weekly review: meetings, commitments, decisions, overdue items, people gone quiet.
 
 ## Architecture
 
@@ -123,6 +131,9 @@ Scripts run via symlinks: `~/identify_speakers.py → repo/ubuntu/identify_speak
 | `com.eoin.sync-inbox-audio` | `sync-inbox-audio.sh` | WatchPaths: `~/inbox/` — uploads `.mp3` / `.m4a` to Ubuntu's audio inbox, then deletes the local Mac copy (canonical audio lives on Ubuntu) |
 | `com.eoin.test-pipeline` | `test-pipeline.sh` | Daily 6am |
 | `com.eoin.weekly-review` | `weekly-review.sh` | Mondays 7am — runs `query_graph.py review --weeks 2` and writes to `~/knowledge_base/_reviews/YYYY-Wnn.md` |
+| `com.eoin.morning-brief` | `morning-brief.sh` | Daily 06:30 — generates `~/morning_brief.md` (today's meetings + open items + closed-in-24h) and emails to `eoinlane@gmail.com` via Gmail SMTP |
+| `com.eoin.stale-nudge` | `stale-nudge.sh` | Fridays 06:30 — surfaces commitments >3 weeks old and emails the nudge |
+| `com.eoin.weekly-benchmark` | `weekly-benchmark.sh` | Sundays 02:00 — runs the 8-transcript benchmark for qwen2.5:14b + claude-haiku-4-5, diffs vs previous, emails on regression |
 | `com.eoin.refresh-memory-symlinks` | `setup-memory-symlinks.sh` | WatchPaths: pipeline memory dir + `~/Documents/` — propagates the cross-cutting memory subset (user profile, feedback rules, client + person dossiers) into every project folder so Claude opened in `~/Documents/<...>` shares behaviour with Claude opened here |
 
 ## Knowledge Base
