@@ -44,7 +44,13 @@ python3 ~/query_graph.py decisions --project NTA        # decisions by project
 python3 ~/query_graph.py history "Jamie Cudden"         # meeting history
 python3 ~/query_graph.py stats                          # graph overview
 python3 ~/query_graph.py focus                          # curated dry-run for Apple Reminders push
+python3 ~/query_graph.py brief                          # daily morning brief (today's meetings + per-attendee last commitment)
 ```
+
+**Daily morning brief (added 2026-05-22):**
+- `query_graph.py brief` runs the day's brief: today's calendar meetings with per-attendee last open commitment, Eoin's open items from last 2 weeks, and 2–4 week-old items owed to Eoin.
+- Launchd agent `com.eoin.morning-brief` fires at 06:30 daily, writing to `~/morning_brief.md` (stable path) plus `~/knowledge_base/_briefs/YYYY-MM-DD.md` (archive).
+- Reads `graph.db` (rebuilt nightly at 04:00) and `~/.local/share/kb/calendars/cal_*.txt`. Stable path is the "read with coffee" file; archive is for history/diff.
 
 **Apple Reminders integration (in progress as of 2026-05-09):**
 - `query_graph.py focus` is the curation validator (dry-run only). Eoin-owned items, fresh (4-week window), excluded projects (`other:personal`, `FutureBusiness` by default), quality filter (drops weak-verb + summary-boilerplate items), max 3 per project, hard cap 10 total, plus a "Today" cross-cut of top 3 by recording date.

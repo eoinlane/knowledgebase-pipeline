@@ -47,10 +47,12 @@ fi
 echo "$(date): Building contacts DB..." >> "$LOG"
 /usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/build_contacts_db.py >> "$LOG" 2>&1
 
-# Step 2c: LLM judgment on new merge_suggestions (cap 50/night so a fresh
-# backlog clears in ~2 weeks; safe to skip if LiteLLM is unreachable).
-echo "$(date): Running entity_resolver_agent (limit 50)..." >> "$LOG"
-/usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/entity_resolver_agent.py --limit 50 >> "$LOG" 2>&1 || \
+# Step 2c: LLM judgment on new merge_suggestions. Bumped 50→200/night on
+# 2026-05-24 to drain the 1,267-people-files backlog faster (~20 new/week
+# growth means 50/night barely kept pace). Safe to skip if LiteLLM is
+# unreachable. Haiku at $0.0005/call → ~$0.10/night even at the cap.
+echo "$(date): Running entity_resolver_agent (limit 200)..." >> "$LOG"
+/usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/entity_resolver_agent.py --limit 200 >> "$LOG" 2>&1 || \
     echo "$(date): entity_resolver_agent skipped/failed (continuing)" >> "$LOG"
 
 echo "$(date): Building graph..." >> "$LOG"

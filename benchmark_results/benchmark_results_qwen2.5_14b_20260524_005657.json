@@ -1,0 +1,323 @@
+{
+  "model": "qwen2.5:14b",
+  "timestamp": "20260524_005657",
+  "results": [
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 6.0,
+      "eval_count": 39,
+      "eval_duration": 4.6,
+      "tok_per_sec": 8.4,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 683,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:blank",
+        "topic": "none",
+        "summary": "The recording contains no speech or meaningful content.",
+        "key_people": ""
+      },
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7",
+      "ground_truth_cat": "other:blank",
+      "cat_match": "exact",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 13.3,
+      "eval_count": 91,
+      "eval_duration": 11.9,
+      "tok_per_sec": 7.6,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 1276,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:personal",
+        "topic": "vacation schedules and personal updates",
+        "summary": "The conversation primarily revolves around the start of school vacations, comparing American and European vacation schedules. The discussion also briefly touches on political topics and a call with the Rocket team.",
+        "key_people": "Eoin Lane,SPEAKER_02,SPEAKER_03,SPEAKER_04"
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF",
+      "ground_truth_cat": "Paradigm",
+      "cat_match": "mismatch",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 15.0,
+      "eval_count": 106,
+      "eval_duration": 13.5,
+      "tok_per_sec": 7.9,
+      "think_overhead_pct": 0,
+      "speaker_count": 4,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "medium"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_04": {
+          "name": null,
+          "confidence": "low"
+        }
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 9.0,
+      "eval_count": 28,
+      "eval_duration": 3.8,
+      "tok_per_sec": 7.3,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3224,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06",
+      "ground_truth_cat": "DCC",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 16.4,
+      "eval_count": 91,
+      "eval_duration": 12.8,
+      "tok_per_sec": 7.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2784,
+      "load_duration": 0.1,
+      "output": {
+        "category": "Diotima",
+        "topic": "Textbook Chunking Problem",
+        "summary": "Eoin and Carl discuss the progress on chunking a specific subtopic from a textbook recommended by Siobhan. They explore accessing sample chapters of 'The Science of Life' and consider alternative resources, including older versions or e-books.",
+        "key_people": "Eoin Lane, Carl, Siobhan"
+      },
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A",
+      "ground_truth_cat": "Diotima",
+      "cat_match": "exact",
+      "kp_overlap": 0.4
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 15.0,
+      "eval_count": 81,
+      "eval_duration": 11.3,
+      "tok_per_sec": 7.2,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2787,
+      "load_duration": 0.09,
+      "output": {
+        "category": "NTA",
+        "topic": "AI strategy and governance discussion",
+        "summary": "Eoin Lane discusses potential AI use cases with Fiona, Sam, Colin, and Kevin. The conversation covers the organization's AI strategy, governance, and specific use cases related to transport regulation.",
+        "key_people": "Owen Lane,Fiona,Sam,Kevin"
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A",
+      "ground_truth_cat": "NTA",
+      "cat_match": "exact",
+      "kp_overlap": 0.14
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 17.6,
+      "eval_count": 111,
+      "eval_duration": 14.8,
+      "tok_per_sec": 7.5,
+      "think_overhead_pct": 0,
+      "speaker_count": 5,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": "Declan",
+          "confidence": "medium"
+        },
+        "SPEAKER_02": {
+          "name": "Alex",
+          "confidence": "medium"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_04": {
+          "name": "Fiona",
+          "confidence": "high"
+        }
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 16.5,
+      "eval_count": 82,
+      "eval_duration": 11.6,
+      "tok_per_sec": 7.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2592,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:personal",
+        "topic": "family and work discussions",
+        "summary": "Eoin Lane and Declan McKibben discuss family matters including children's ages and school policies, as well as work-related topics such as a successful presentation at a county council and AI legislation.",
+        "key_people": "Eoin Lane, Declan McKibben"
+      },
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7",
+      "ground_truth_cat": "ADAPT",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 17.0,
+      "eval_count": 102,
+      "eval_duration": 14.1,
+      "tok_per_sec": 7.2,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2337,
+      "load_duration": 0.08,
+      "output": {
+        "category": "DCC",
+        "topic": "AI Workshop and Proof of Concepts",
+        "summary": "Eoin Lane discusses the progress of AI workshops conducted with various units within Dublin City Council to identify challenges and prioritize projects for generative AI implementation. The team has developed several proof-of-concepts (POCs) in a lab setting, focusing on areas like tender documentation automation and learning management systems.",
+        "key_people": "Eoin Lane, Cathal Bellew"
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF",
+      "ground_truth_cat": "DCC",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 7.9,
+      "eval_count": 46,
+      "eval_duration": 5.7,
+      "tok_per_sec": 8.1,
+      "think_overhead_pct": 0,
+      "speaker_count": 1,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        }
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 15.8,
+      "eval_count": 78,
+      "eval_duration": 11.3,
+      "tok_per_sec": 6.9,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2800,
+      "load_duration": 0.08,
+      "output": {
+        "category": "other:personal",
+        "topic": "Personal Chat",
+        "summary": "Eoin Lane and others discuss personal matters such as living situations, family life, and children. The conversation includes mentions of homes in Dublin's IFSC area and reflections on raising children in a changing world.",
+        "key_people": "Eoin Lane, Conor"
+      },
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1",
+      "ground_truth_cat": "other:personal",
+      "cat_match": "exact",
+      "kp_overlap": 0.25
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1"
+    }
+  ]
+}

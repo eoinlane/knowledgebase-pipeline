@@ -1,0 +1,323 @@
+{
+  "model": "deepseek-r1:14b",
+  "timestamp": "20260524_011009",
+  "results": [
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 8.1,
+      "eval_count": 50,
+      "eval_duration": 6.5,
+      "tok_per_sec": 7.7,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 672,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:blank",
+        "topic": "no content",
+        "summary": "The recording contains no detectable speech or meaningful content.",
+        "key_people": ""
+      },
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7",
+      "ground_truth_cat": "other:blank",
+      "cat_match": "exact",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 52.3,
+      "eval_count": 385,
+      "eval_duration": 50.7,
+      "tok_per_sec": 7.6,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 1265,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:personal",
+        "topic": "Personal Discussion",
+        "summary": "The meeting transcript discusses personal matters such as children's school schedules and political comments about American immigration policies. There is also mention of a work-related call with the Rocket team.",
+        "key_people": "Eoin Lane, SPEAKER_02, SPEAKER_03, SPEAKER_04"
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF",
+      "ground_truth_cat": "Paradigm",
+      "cat_match": "mismatch",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 60.2,
+      "eval_count": 445,
+      "eval_duration": 58.5,
+      "tok_per_sec": 7.6,
+      "think_overhead_pct": 0,
+      "speaker_count": 4,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_02": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_04": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "medium"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "medium"
+        }
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 92.8,
+      "eval_count": 601,
+      "eval_duration": 87.2,
+      "tok_per_sec": 6.9,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3213,
+      "load_duration": 0.08,
+      "output": {
+        "category": "Diotima",
+        "topic": "AI Strategy and Partnerships",
+        "summary": "Eoin Lane and Cathal Murphy discuss AI-related business strategies, partnerships, and collaborations. They explore opportunities for establishing advisory relationships and licensing agreements, particularly focusing on intellectual property (IP) and financial aspects. The conversation also touches on potential collaborations with legal firms like Matheson's and the importance of building a sales pipeline.",
+        "key_people": "Eoin Lane, Cathal Murphy, Louise McCormack, Jonathan Nyland, Dave Lewis"
+      },
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06",
+      "ground_truth_cat": "DCC",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 76.2,
+      "eval_count": 505,
+      "eval_duration": 72.3,
+      "tok_per_sec": 7.0,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2773,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:blank",
+        "topic": "Textbook Access Discussion",
+        "summary": "Eoin and Carl discuss accessing the textbook 'The Science of Life' by C.J. Fellin, focusing on its availability as a PDF or eBook. They explore options like contacting the publisher and checking with Siobhan for assistance.",
+        "key_people": "Eoin Lane, Carl"
+      },
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A",
+      "ground_truth_cat": "Diotima",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.2
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 87.3,
+      "eval_count": 573,
+      "eval_duration": 83.2,
+      "tok_per_sec": 6.9,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2776,
+      "load_duration": 0.08,
+      "output": {
+        "category": "NTA",
+        "topic": "AI Strategy and Governance Discussion",
+        "summary": "The meeting involved discussions about AI strategy and governance within the organization, including potential use cases and tools for assessing passenger rights and data protection. The conversation touched on topics like UAT (User Acceptance Testing) and AI impact assessments, indicating a focus on implementing AI systems in a transport context.",
+        "key_people": "Owen Lane, Declan, Alex, Kevin, Fiona, Sam, Colin, Cody"
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A",
+      "ground_truth_cat": "NTA",
+      "cat_match": "exact",
+      "kp_overlap": 0.33
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 91.9,
+      "eval_count": 646,
+      "eval_duration": 88.6,
+      "tok_per_sec": 7.3,
+      "think_overhead_pct": 0,
+      "speaker_count": 5,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": "Declan",
+          "confidence": "medium"
+        },
+        "SPEAKER_02": {
+          "name": "Alex",
+          "confidence": "medium"
+        },
+        "SPEAKER_03": {
+          "name": "Owen Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_04": {
+          "name": "Fiona",
+          "confidence": "high"
+        }
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 87.0,
+      "eval_count": 396,
+      "eval_duration": 56.1,
+      "tok_per_sec": 7.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2581,
+      "load_duration": 26.05,
+      "output": {
+        "category": "other:personal",
+        "topic": "Personal and Professional Discussion",
+        "summary": "The conversation includes a mix of personal matters, such as discussing children and managing screen time, and professional topics like AI legislation and presentations to councils. Eoin mentions his affiliation with Trinity College and ADAPT while sharing anecdotes about work and family life.",
+        "key_people": "Eoin Lane, Declan McKibben"
+      },
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7",
+      "ground_truth_cat": "ADAPT",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 79.6,
+      "eval_count": 382,
+      "eval_duration": 53.8,
+      "tok_per_sec": 7.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2326,
+      "load_duration": 22.0,
+      "output": {
+        "category": "DCC",
+        "topic": "AI Strategy and Proof of Concepts",
+        "summary": "Eoin Lane discusses the progress of AI initiatives within the city council, including workshops to identify challenges, prioritizing ideas for proof of concepts (POCs), and exploring generative AI tools. The focus is on integrating AI into various business units and assessing its feasibility for tasks like tender documentation automation.",
+        "key_people": "Eoin Lane, Cathal Bellew"
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF",
+      "ground_truth_cat": "DCC",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 44.9,
+      "eval_count": 325,
+      "eval_duration": 42.5,
+      "tok_per_sec": 7.6,
+      "think_overhead_pct": 0,
+      "speaker_count": 1,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "low"
+        }
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 68.1,
+      "eval_count": 434,
+      "eval_duration": 63.3,
+      "tok_per_sec": 6.9,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2789,
+      "load_duration": 0.08,
+      "output": {
+        "category": "other:personal",
+        "topic": "Personal Conversation",
+        "summary": "The transcript contains a casual conversation between Eoin Lane and Conor, discussing their living situations in Dublin, family life, and experiences moving back to Ireland. They also touch on the challenges of parenting in a rapidly changing world.",
+        "key_people": "Eoin Lane, Conor"
+      },
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1",
+      "ground_truth_cat": "other:personal",
+      "cat_match": "exact",
+      "kp_overlap": 0.25
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1"
+    }
+  ]
+}

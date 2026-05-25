@@ -32,21 +32,28 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-LITELLM_URL = "http://100.121.184.27:4000/v1/chat/completions"
-LITELLM_MODEL = "claude-haiku-4-5"
 DB_PATH = str(Path.home() / "contacts.db")
 DEFAULT_LIMIT = 50
 TIMEOUT_SEC = 60
 
-# Authoritative employer map. Loaded from shared/config.py:PERSON_CATEGORY so
-# the agent prefers the static mapping over meeting-derived primary_org for
-# cross-project people (e.g. Declan McKibben works at ADAPT but appears most
-# often in DCC/NTA meetings — primary_org will say DCC, employer says ADAPT).
+# Authoritative employer map + pinned model version + LiteLLM URL. Loaded
+# from shared/config.py so the agent prefers the static mapping over
+# meeting-derived primary_org for cross-project people (e.g. Declan McKibben
+# works at ADAPT but appears most often in DCC/NTA meetings — primary_org
+# will say DCC, employer says ADAPT).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 try:
-    from shared.config import PERSON_CATEGORY as _EMPLOYER_MAP
+    from shared.config import (
+        PERSON_CATEGORY as _EMPLOYER_MAP,
+        HAIKU_MODEL,
+        LITELLM_URL_REMOTE as LITELLM_URL,
+    )
 except ImportError:
     _EMPLOYER_MAP = {}
+    HAIKU_MODEL = "claude-haiku-4-5"
+    LITELLM_URL = "http://100.121.184.27:4000/v1/chat/completions"
+
+LITELLM_MODEL = HAIKU_MODEL
 
 SYSTEM_PROMPT = """You are deduplicating people in a personal professional contacts database. \
 Given two name variants and their meeting context, decide if they refer to the same person. \

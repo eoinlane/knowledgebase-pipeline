@@ -1,0 +1,323 @@
+{
+  "model": "qwen2.5:7b",
+  "timestamp": "20260524_005728",
+  "results": [
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 0.9,
+      "eval_count": 28,
+      "eval_duration": 0.5,
+      "tok_per_sec": 56.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 683,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7",
+      "ground_truth_cat": "other:blank",
+      "cat_match": "exact",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 1.4,
+      "eval_count": 56,
+      "eval_duration": 1.0,
+      "tok_per_sec": 54.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 1276,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:personal",
+        "topic": "Vacation schedule and political discussions",
+        "summary": "The conversation primarily revolves around vacation schedules, political opinions about Europe and America, and mentions of future meetings.",
+        "key_people": ""
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF",
+      "ground_truth_cat": "Paradigm",
+      "cat_match": "mismatch",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 2.4,
+      "eval_count": 103,
+      "eval_duration": 1.9,
+      "tok_per_sec": 54.6,
+      "think_overhead_pct": 0,
+      "speaker_count": 4,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_04": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "Eoin Lane": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        }
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 3.3,
+      "eval_count": 95,
+      "eval_duration": 1.8,
+      "tok_per_sec": 52.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3224,
+      "load_duration": 0.09,
+      "output": {
+        "category": "DCC",
+        "topic": "AI strategy and business development for Dublin City Council",
+        "summary": "Eoin Lane discusses AI strategy, business development, and cyfansoddiadau cymdeithasol with Cathal Murphy. They explore potential partnerships and sales pipelines, particularly with the Trinity Business School and Matheson's law firm.",
+        "key_people": "Cathal Murphy, Eoin Lane"
+      },
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06",
+      "ground_truth_cat": "DCC",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 1.5,
+      "eval_count": 28,
+      "eval_duration": 0.5,
+      "tok_per_sec": 54.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2784,
+      "load_duration": 0.08,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A",
+      "ground_truth_cat": "Diotima",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 2.9,
+      "eval_count": 97,
+      "eval_duration": 1.8,
+      "tok_per_sec": 52.8,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2787,
+      "load_duration": 0.09,
+      "output": {
+        "category": "NTA",
+        "topic": "AI Strategy and Governance",
+        "summary": "The discussion revolves around potential AI use cases within the organization, particularly focusing on passenger rights and delay management. The team is preparing for a user acceptance test (UAT) in the summer and will be using a tool to assess business value propositions and AI governance.",
+        "key_people": "Owen Lane, Declan, Kevin, Fiona, Sam"
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A",
+      "ground_truth_cat": "NTA",
+      "cat_match": "exact",
+      "kp_overlap": 0.29
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 2.9,
+      "eval_count": 114,
+      "eval_duration": 2.1,
+      "tok_per_sec": 53.9,
+      "think_overhead_pct": 0,
+      "speaker_count": 5,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_03": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": "Fiona",
+          "confidence": "high"
+        },
+        "SPEAKER_02": {
+          "name": "Alex",
+          "confidence": "high"
+        },
+        "SPEAKER_04": {
+          "name": "Declan",
+          "confidence": "high"
+        },
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "medium"
+        }
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 2.8,
+      "eval_count": 77,
+      "eval_duration": 1.5,
+      "tok_per_sec": 53.0,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2592,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:personal",
+        "topic": "Personal and work discussions",
+        "summary": "Eoin discusses personal matters including his children and work-related topics with Declan McKibben, touching on ADAPT, Microsoft, and a county council interest in collaborating.",
+        "key_people": "Eoin Lane, Declan McKibben"
+      },
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7",
+      "ground_truth_cat": "ADAPT",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 2.6,
+      "eval_count": 90,
+      "eval_duration": 1.7,
+      "tok_per_sec": 53.2,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2337,
+      "load_duration": 0.09,
+      "output": {
+        "category": "DCC",
+        "topic": "AI Strategy and Lab Workshops",
+        "summary": "Eoin Lane discusses the development of AI projects within Dublin City Council, including workshops to identify challenges and prioritize ideas for proof-of-concepts. The focus is on creating a generative AI guidebook and automating tender documentation processes.",
+        "key_people": "Cathal Bellew, Eoin Lane"
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF",
+      "ground_truth_cat": "DCC",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 1.5,
+      "eval_count": 46,
+      "eval_duration": 0.8,
+      "tok_per_sec": 54.7,
+      "think_overhead_pct": 0,
+      "speaker_count": 1,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        }
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 2.6,
+      "eval_count": 70,
+      "eval_duration": 1.3,
+      "tok_per_sec": 53.0,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2800,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:personal",
+        "topic": "Personal Discussion",
+        "summary": "The conversation primarily revolves around personal matters such as living in the IFSC area of Dublin, home life, and reflections on moving back to Ireland with children.",
+        "key_people": "Eoin Lane, Conor, Chris"
+      },
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1",
+      "ground_truth_cat": "other:personal",
+      "cat_match": "exact",
+      "kp_overlap": 0.5
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1"
+    }
+  ]
+}

@@ -22,7 +22,7 @@ PIPELINE_DIR = os.environ.get("PIPELINE_DIR", os.path.expanduser("~/knowledgebas
 if os.path.isdir(PIPELINE_DIR) and PIPELINE_DIR not in sys.path:
     sys.path.insert(0, PIPELINE_DIR)
 try:
-    from shared.config import OLLAMA_URL, MODEL
+    from shared.config import OLLAMA_URL, MODEL, HAIKU_MODEL
     from shared.name_expansions import CATEGORY_NAME_EXPANSIONS
     from shared.atomic_io import atomic_write_json
     _SHARED_LOADED = True
@@ -30,6 +30,7 @@ except ImportError:
     _SHARED_LOADED = False
     OLLAMA_URL = "http://192.168.0.70:11434/api/chat"
     MODEL = "qwen2.5:14b"
+    HAIKU_MODEL = "claude-haiku-4-5"
     # Inline fallback for atomic_write_json — same write-then-rename semantics.
     def atomic_write_json(path, data):
         import tempfile
@@ -684,7 +685,7 @@ Transcript:
                 print(f"  Ollama unavailable ({e}), trying Haiku fallback")
                 try:
                     litellm_payload = json.dumps({
-                        "model": "claude-haiku-4-5",
+                        "model": HAIKU_MODEL,
                         "messages": [
                             {"role": "system", "content": SYSTEM_PROMPT},
                             {"role": "user", "content": USER_PROMPT}

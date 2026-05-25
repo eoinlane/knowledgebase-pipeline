@@ -66,6 +66,59 @@ def fuzzy_owner_match(owner, search_name):
     return search_l in owner_l or owner_l in search_l
 
 
+def _build_last_seen_cache(conn, today=None):
+    """Return {owner_lower: weeks_since_their_most_recent_meeting}.
+    'Meeting' here = the most recent action_item the owner appears on (proxy
+    for last interaction). Used by _priority_score to boost items from people
+    you still meet vs people you haven't seen since."""
+    import datetime as _ndt
+    if today is None:
+        today = _ndt.date.today()
+    cache = {}
+    rows = conn.execute("""
+        SELECT LOWER(REPLACE(REPLACE(owner, '[', ''), ']', '')) AS o,
+               MAX(meeting_filename) AS last_mtg
+        FROM action_items
+        WHERE owner IS NOT NULL AND owner != ''
+        GROUP BY o
+    """).fetchall()
+    for r in rows:
+        date_s = (r["last_mtg"] or "").split("_")[0]
+        try:
+            d = _ndt.date.fromisoformat(date_s)
+            cache[r["o"]] = (today - d).days / 7
+        except ValueError:
+            continue
+    return cache
+
+
+def _priority_score(meeting_filename, owner, today, last_seen_cache):
+    """0..1.5 priority score. Higher = more relevant. Combines:
+    - item age (newer = higher; halves at 10 weeks)
+    - relationship freshness (recently met = bonus)
+    Items from people you haven't seen in months sink to the bottom even if
+    the item itself is old; recent items from active relationships float to
+    the top. Stale-status items handled separately by the SQL filter."""
+    import datetime as _ndt
+    date_s = (meeting_filename or "").split("_")[0]
+    try:
+        item_date = _ndt.date.fromisoformat(date_s)
+    except ValueError:
+        return 0.0
+    age_weeks = max((today - item_date).days / 7, 0)
+    age_score = 1.0 / (1.0 + age_weeks * 0.1)  # halves at 10 weeks, 1/4 at 30 weeks
+
+    owner_l = (owner or "").lower().strip("[]")
+    last_seen = last_seen_cache.get(owner_l, 999)
+    if last_seen <= 4:
+        rel_bonus = 0.5
+    elif last_seen <= 12:
+        rel_bonus = 0.25
+    else:
+        rel_bonus = 0.0
+    return age_score + rel_bonus
+
+
 def cmd_open(args):
     conn = get_conn(GRAPH_DB)
 
@@ -89,27 +142,57 @@ def cmd_open(args):
         print("No open action items found.")
         return
 
-    # Group by meeting, sorted by date (newest first)
-    by_meeting = {}
-    for r in rows:
-        by_meeting.setdefault(r["meeting_filename"], []).append(r)
+    # Sort: by-priority (default) blends item age + relationship recency so
+    # ancient commitments from people you've not seen sink. --by-date keeps
+    # the legacy strict-date-desc grouping for power users who want it.
+    by_date = getattr(args, "by_date", False)
+    if by_date:
+        by_meeting = {}
+        for r in rows:
+            by_meeting.setdefault(r["meeting_filename"], []).append(r)
+        sorted_meetings = sorted(by_meeting.keys(), reverse=True)
+        total = len(rows)
+        proj_label = f" [{args.project.upper()}]" if args.project else ""
+        person_label = f" for {args.person}" if args.person else ""
+        print(f"## Open Action Items{proj_label}{person_label} ({total} total, by date)\n")
+        for meeting in sorted_meetings:
+            items = by_meeting[meeting]
+            date = meeting.split("_")[0] if "_" in meeting else ""
+            cat = meeting_category(meeting)
+            print(f"### {date} | {cat}")
+            for item in items:
+                owner = (item["owner"] or "unassigned").strip("[]")
+                print(f"  - [ ] {owner}: {item['text']}")
+            print()
+        conn.close()
+        return
 
-    sorted_meetings = sorted(by_meeting.keys(), reverse=True)
-
+    # Priority-ordered output
+    today = _dt.date.today()
+    last_seen_cache = _build_last_seen_cache(conn, today)
+    scored = [(_priority_score(r["meeting_filename"], r["owner"], today, last_seen_cache), r)
+              for r in rows]
+    scored.sort(key=lambda x: -x[0])
     total = len(rows)
     proj_label = f" [{args.project.upper()}]" if args.project else ""
     person_label = f" for {args.person}" if args.person else ""
-    print(f"## Open Action Items{proj_label}{person_label} ({total} total)\n")
+    print(f"## Open Action Items{proj_label}{person_label} ({total} total, by priority)\n")
+    print(f"_Priority = item age × relationship recency. Use `--by-date` for strict date order._\n")
 
-    for meeting in sorted_meetings:
-        items = by_meeting[meeting]
-        date = meeting.split("_")[0] if "_" in meeting else ""
-        cat = meeting_category(meeting)
-        print(f"### {date} | {cat}")
-        for item in items:
-            owner = item["owner"] or "unassigned"
-            owner = owner.strip("[]")
-            print(f"  - [ ] {owner}: {item['text']}")
+    # Bucket by score band for scanability
+    fresh = [s for s in scored if s[0] >= 0.8]
+    warm  = [s for s in scored if 0.4 <= s[0] < 0.8]
+    cool  = [s for s in scored if 0.2 <= s[0] < 0.4]
+    cold  = [s for s in scored if s[0] < 0.2]
+    for label, bucket in [("Fresh", fresh), ("Warm", warm), ("Cool", cool), ("Cold", cold)]:
+        if not bucket:
+            continue
+        print(f"### {label} ({len(bucket)})")
+        for score, r in bucket:
+            owner = (r["owner"] or "unassigned").strip("[]")
+            date = r["meeting_filename"].split("_")[0] if "_" in r["meeting_filename"] else ""
+            cat = meeting_category(r["meeting_filename"])
+            print(f"  - [ ] [{date} {cat} · {score:.2f}] {owner}: {r['text']}")
         print()
 
     conn.close()
@@ -198,6 +281,123 @@ def cmd_history(args):
     conn.close()
 
 
+def cmd_context(args):
+    """Compact context block for a person — designed to be loaded before
+    drafting outbound email/chat to them. Shows: last meeting + summary,
+    their open commitments to Eoin, Eoin's open commitments to them, and
+    recent cadence. Output is short prose markdown so it pastes cleanly
+    into a Gmail-MCP system prompt or into Eoin's own scratchpad."""
+    if not args.name:
+        print("Usage: query_graph.py context \"Person Name\"", file=sys.stderr)
+        sys.exit(1)
+
+    name = args.name
+    name_l = name.lower()
+    conn = get_conn(GRAPH_DB)
+
+    # Most recent meeting filename involving this person (as owner OR via the graph_edges from-id)
+    last_mtg = conn.execute("""
+        SELECT meeting_filename, MAX(meeting_filename) AS m
+        FROM action_items
+        WHERE LOWER(REPLACE(REPLACE(owner, '[', ''), ']', '')) LIKE ?
+    """, (f"%{name_l}%",)).fetchone()
+    last_meeting_fn = last_mtg["m"] if last_mtg else None
+
+    # Cadence: count of distinct meetings in the last 12 weeks
+    today = _dt.date.today()
+    cutoff_12w = (today - _dt.timedelta(weeks=12)).isoformat()
+    cadence_row = conn.execute("""
+        SELECT COUNT(DISTINCT meeting_filename) AS n
+        FROM action_items
+        WHERE LOWER(REPLACE(REPLACE(owner, '[', ''), ']', '')) LIKE ?
+          AND meeting_filename >= ?
+    """, (f"%{name_l}%", cutoff_12w)).fetchone()
+    cadence_count = cadence_row["n"] if cadence_row else 0
+
+    # Their open items (they owe Eoin)
+    they_owe = conn.execute("""
+        SELECT meeting_filename, text FROM action_items
+        WHERE status = 'open'
+          AND LOWER(REPLACE(REPLACE(owner, '[', ''), ']', '')) LIKE ?
+        ORDER BY meeting_filename DESC LIMIT 5
+    """, (f"%{name_l}%",)).fetchall()
+
+    # Eoin's open items where this person was a meeting participant — proxy
+    # via meeting filenames where the person appears AND Eoin is the owner.
+    # First find all meeting filenames they touched (any role).
+    their_meetings = {
+        r["meeting_filename"] for r in conn.execute("""
+            SELECT DISTINCT meeting_filename FROM action_items
+            WHERE LOWER(REPLACE(REPLACE(owner, '[', ''), ']', '')) LIKE ?
+        """, (f"%{name_l}%",)).fetchall()
+    }
+    eoin_to_them = []
+    if their_meetings:
+        placeholders = ",".join("?" * len(their_meetings))
+        eoin_to_them = conn.execute(f"""
+            SELECT meeting_filename, text FROM action_items
+            WHERE status = 'open'
+              AND LOWER(owner) LIKE '%eoin%'
+              AND meeting_filename IN ({placeholders})
+            ORDER BY meeting_filename DESC LIMIT 5
+        """, tuple(their_meetings)).fetchall()
+
+    # Recent decisions involving this person's meetings
+    recent_decisions = []
+    if their_meetings:
+        placeholders = ",".join("?" * len(their_meetings))
+        recent_decisions = conn.execute(f"""
+            SELECT meeting_filename, text FROM decisions
+            WHERE meeting_filename IN ({placeholders})
+            ORDER BY meeting_filename DESC LIMIT 3
+        """, tuple(their_meetings)).fetchall()
+
+    # Render
+    print(f"# Context for {name}")
+    if last_meeting_fn:
+        last_date = last_meeting_fn.split("_")[0]
+        try:
+            d = _dt.date.fromisoformat(last_date)
+            days_ago = (today - d).days
+            ago = f"{days_ago}d ago" if days_ago < 90 else f"{days_ago // 7}w ago"
+        except ValueError:
+            ago = "?"
+        cat = meeting_category(last_meeting_fn)
+        title = meeting_title(last_meeting_fn)
+        print(f"\n_Last touched: {last_date} ({ago}) — {cat} · {title}_")
+        print(f"_Recent cadence: {cadence_count} meeting(s) in last 12 weeks_")
+    else:
+        print(f"\n_No recent meetings found involving {name}._")
+        conn.close()
+        return
+
+    if they_owe:
+        print(f"\n## {name} owes you ({len(they_owe)})")
+        for r in they_owe:
+            text = r["text"]
+            if len(text) > 180:
+                text = text[:180].rstrip() + "…"
+            print(f"- [{meeting_date(r['meeting_filename'])}] {text}")
+
+    if eoin_to_them:
+        print(f"\n## You owe {name} ({len(eoin_to_them)})")
+        for r in eoin_to_them:
+            text = r["text"]
+            if len(text) > 180:
+                text = text[:180].rstrip() + "…"
+            print(f"- [{meeting_date(r['meeting_filename'])}] {text}")
+
+    if recent_decisions:
+        print(f"\n## Recent decisions from your meetings together")
+        for r in recent_decisions[:3]:
+            text = r["text"]
+            if len(text) > 180:
+                text = text[:180].rstrip() + "…"
+            print(f"- [{meeting_date(r['meeting_filename'])}] {text}")
+
+    conn.close()
+
+
 def cmd_stats(args):
     conn = get_conn(GRAPH_DB)
 
@@ -236,7 +436,11 @@ def cmd_stats(args):
 
 
 def save_closure(meeting_filename, text, status="closed"):
-    """Persist a closure to ~/.graph_closures.json so it survives rebuilds."""
+    """Persist a closure to ~/.graph_closures.json so it survives rebuilds.
+    Stores {"status": ..., "closed_at": ISO-8601 timestamp}. build_graph.py
+    reads both this dict form and the legacy plain-string form for
+    backwards compatibility with older closures."""
+    import datetime as _ndt
     closures = {}
     if CLOSURES_FILE.exists():
         try:
@@ -246,7 +450,10 @@ def save_closure(meeting_filename, text, status="closed"):
             pass
     # Key by meeting_filename::text_prefix (first 80 chars for robustness)
     key = f"{meeting_filename}::{text[:80]}"
-    closures[key] = status
+    closures[key] = {
+        "status": status,
+        "closed_at": _ndt.datetime.now().isoformat(timespec="seconds"),
+    }
     with open(CLOSURES_FILE, "w") as f:
         json.dump(closures, f, indent=2)
 
@@ -423,7 +630,7 @@ def cmd_done(args):
 
         print(f"Closing {len(rows)} action items older than {args.stale} weeks (before {cutoff})...")
         conn.execute("""
-            UPDATE action_items SET status = 'closed'
+            UPDATE action_items SET status = 'closed', closed_at = CURRENT_TIMESTAMP
             WHERE status = 'open' AND meeting_filename < ?
         """, (cutoff,))
         conn.commit()
@@ -459,7 +666,7 @@ def cmd_done(args):
             print(f"#{item_id} is already closed.")
             conn.close()
             return
-        conn.execute("UPDATE action_items SET status = 'closed' WHERE id = ?", (item_id,))
+        conn.execute("UPDATE action_items SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?", (item_id,))
         conn.commit()
         save_closure(row["meeting_filename"], row["text"])
         owner = row["owner"] or "unassigned"
@@ -483,7 +690,7 @@ def cmd_done(args):
 
     if len(rows) == 1:
         r = rows[0]
-        conn.execute("UPDATE action_items SET status = 'closed' WHERE id = ?", (r["id"],))
+        conn.execute("UPDATE action_items SET status = 'closed', closed_at = CURRENT_TIMESTAMP WHERE id = ?", (r["id"],))
         conn.commit()
         save_closure(r["meeting_filename"], r["text"])
         owner = r["owner"] or "unassigned"
@@ -499,8 +706,19 @@ def cmd_done(args):
     conn.close()
 
 
-LITELLM_URL = "http://100.121.184.27:4000/v1/chat/completions"
-LITELLM_MODEL = "claude-haiku-4-5"
+# Pinned model + URL from shared/config.py. Imports inline (rather than at
+# the top of the module) because query_graph.py predates the shared/ layout
+# and is imported via a sys.path insert further down — keeping the import
+# co-located with its use avoids reordering risk.
+import sys as _sys_qg
+from pathlib import Path as _Path_qg
+_sys_qg.path.insert(0, str(_Path_qg(__file__).resolve().parent.parent))
+try:
+    from shared.config import HAIKU_MODEL, LITELLM_URL_REMOTE as LITELLM_URL
+except ImportError:
+    HAIKU_MODEL = "claude-haiku-4-5"
+    LITELLM_URL = "http://100.121.184.27:4000/v1/chat/completions"
+LITELLM_MODEL = HAIKU_MODEL
 
 
 def call_haiku(system_prompt, user_prompt):
@@ -1014,6 +1232,316 @@ def _push_to_reminders(picks, today_ids):
     print(f"\nCreated: {created} reminder(s). Skipped (already present): {skipped}.\n")
 
 
+_BRIEF_EXCLUDED_CALENDARS = {"cal_personal.txt", "cal_home.txt"}
+
+
+def _parse_calendar_events_on(target_date):
+    """Read all calendar exports, return events on target_date.
+    Returns list of dicts: {title, start_time, end_time, attendees}.
+    Calendar files live at ~/.local/share/kb/calendars/cal_*.txt, exported by icalBuddy.
+    Blocks are separated by lines containing only '---'. Each block has
+    TITLE: / START: / END: / ATTENDEES: lines.
+    Personal and Home calendars are excluded — scouting, family, and other
+    non-work events shouldn't pollute the morning brief."""
+    import os, glob
+    cal_dir = os.path.expanduser("~/.local/share/kb/calendars")
+    target_str = target_date.strftime("%d %B %Y")
+    events = []
+    seen = set()
+    for cal_file in sorted(glob.glob(os.path.join(cal_dir, "cal_*.txt"))):
+        if os.path.basename(cal_file) in _BRIEF_EXCLUDED_CALENDARS:
+            continue
+        try:
+            content = open(cal_file).read()
+        except OSError:
+            continue
+        for block in content.split("\n---\n"):
+            block = block.strip()
+            if not block:
+                continue
+            m_start = re.search(r"^START:\s*(.+)$", block, re.M)
+            if not m_start:
+                continue
+            start_line = m_start.group(1).strip()
+            if target_str not in start_line:
+                continue
+            m_title = re.search(r"^TITLE:\s*(.+)$", block, re.M)
+            title = m_title.group(1).strip() if m_title else "(no title)"
+            m_start_time = re.search(r"at\s+(\d{1,2}:\d{2})", start_line)
+            start_time = m_start_time.group(1) if m_start_time else "all-day"
+            m_end = re.search(r"^END:\s*(.+)$", block, re.M)
+            end_time = ""
+            if m_end:
+                m_endtime = re.search(r"(\d{1,2}:\d{2})", m_end.group(1))
+                end_time = m_endtime.group(1) if m_endtime else ""
+            m_att = re.search(r"^ATTENDEES:\s*(.+)$", block, re.M)
+            attendees = []
+            if m_att:
+                attendees = [a.strip() for a in m_att.group(1).split("|") if a.strip()]
+            key = (title, start_time)
+            if key in seen:
+                continue
+            seen.add(key)
+            events.append({
+                "title": title,
+                "start_time": start_time,
+                "end_time": end_time,
+                "attendees": attendees,
+            })
+    events.sort(key=lambda e: e["start_time"] if ":" in e["start_time"] else "z")
+    return events
+
+
+def _last_open_item_for_attendee(attendee, conn):
+    """Look up the most recent open action item where this person is the owner.
+    Returns (meeting_filename, text) or None. Tries email-local-part, full name,
+    and first-name fallbacks against fuzzy owner match."""
+    if "@" in attendee:
+        candidate = attendee.split("@")[0].replace(".", " ").replace("_", " ").strip()
+    else:
+        candidate = attendee.strip()
+    tries = [candidate]
+    if " " in candidate:
+        tries.append(candidate.split()[0])  # first name
+        tries.append(candidate.split()[-1])  # last name
+    seen = set()
+    for q in tries:
+        q_l = q.lower()
+        if q_l in seen or len(q_l) < 3 or "eoin" in q_l:
+            continue
+        seen.add(q_l)
+        row = conn.execute("""
+            SELECT meeting_filename, text FROM action_items
+            WHERE status = 'open' AND LOWER(owner) LIKE ?
+            ORDER BY meeting_filename DESC LIMIT 1
+        """, (f"%{q_l}%",)).fetchone()
+        if row:
+            return row
+    return None
+
+
+def _clean_attendee(att):
+    """Clean a calendar attendee string for brief display.
+    Returns (display_name, is_valid). is_valid=False means this entry is
+    calendar-export noise (room codes, group markers, prefix garbage) and
+    should be dropped from the brief entirely — including from the per-
+    attendee commitment lookup, since looking up "PS4" or "All in NTA"
+    only produces false-positive matches against action_items.owner."""
+    if not att:
+        return ("", False)
+    a = att.strip()
+    # Colon-prefix garbage from calendar export
+    if a.startswith(":") or a.startswith("To:") or a.lower().startswith("subject:"):
+        return ("", False)
+    a_low = a.lower()
+    # Room codes and group markers — not people
+    if a_low in {"hr", "ps4", "ps5", "ps6", "ps7"}:
+        return ("", False)
+    if a_low.startswith("all in ") or a_low.startswith("all hands"):
+        return ("", False)
+    # Malformed angle-bracket entries (export bug — opening < without closing >)
+    if "<" in a and ">" not in a:
+        return ("", False)
+    # Strip @domain from emails
+    if "@" in a:
+        a = a.split("@")[0]
+    # Convert "first.last" → "First Last"
+    if "." in a and " " not in a:
+        parts = a.split(".")
+        if all(p.replace("_", "").isalpha() and p for p in parts):
+            a = " ".join(p.capitalize() for p in parts)
+    # Single lowercase token → titlecase (imperfect but better than raw)
+    elif a.islower() and a.replace("_", "").isalpha():
+        a = a.capitalize()
+    return (a, True)
+
+
+def cmd_brief(args):
+    """Daily morning brief. Designed for 06:30 launchd run. Outputs markdown to stdout.
+    Sections: today's meetings with per-attendee last commitment, your open items
+    (last 2 weeks), others' open items owed to you (oldest first)."""
+    today = _dt.date.today()
+    conn = get_conn(GRAPH_DB)
+
+    print(f"# Morning brief — {today.strftime('%A %d %B %Y')}")
+    print()
+
+    events = _parse_calendar_events_on(today)
+    if events:
+        print(f"## Today ({len(events)} meeting{'s' if len(events) != 1 else ''})")
+        print()
+        for evt in events:
+            time_str = evt["start_time"]
+            if evt["end_time"]:
+                time_str += f"–{evt['end_time']}"
+            print(f"### {time_str}  {evt['title']}")
+            # Filter Eoin + clean attendees via _clean_attendee (drops
+            # PS4/HR/All in NTA/To:X/etc., title-cases email-prefix names).
+            cleaned = []
+            for a in evt["attendees"]:
+                if not a or "eoin" in a.lower():
+                    continue
+                display, valid = _clean_attendee(a)
+                if valid:
+                    cleaned.append((a, display))
+            if cleaned:
+                print(f"_With:_ {', '.join(d for _, d in cleaned)}")
+                print()
+                shown = 0
+                for raw, display in cleaned:
+                    if shown >= 6:
+                        break
+                    last = _last_open_item_for_attendee(raw, conn)
+                    if last:
+                        fn, text = last
+                        if len(text) > 160:
+                            text = text[:160].rstrip() + "…"
+                        print(f"- **{display}** owes since {meeting_date(fn)}: {text}")
+                        shown += 1
+            print()
+    else:
+        print("## Today")
+        print()
+        print("No calendar meetings scheduled.")
+        print()
+
+    cutoff_2w = (today - _dt.timedelta(weeks=2)).isoformat()
+    cutoff_4w = (today - _dt.timedelta(weeks=4)).isoformat()
+
+    # --- Closed in the last 24h (new section, depends on closed_at column) ---
+    # Show items the user actually knocked off recently so the brief reflects
+    # closure activity, not just open backlog. Bounded to last 24h via the
+    # closed_at timestamp written by cmd_done (and propagated by build_graph
+    # from .graph_closures.json).
+    yesterday_start = (today - _dt.timedelta(days=1)).isoformat()
+    try:
+        closed_recently = conn.execute("""
+            SELECT meeting_filename, owner, text, closed_at FROM action_items
+            WHERE status = 'closed'
+              AND closed_at IS NOT NULL
+              AND closed_at >= ?
+            ORDER BY closed_at DESC LIMIT 10
+        """, (yesterday_start,)).fetchall()
+    except sqlite3.OperationalError:
+        closed_recently = []  # closed_at column not yet present; safe fallback
+    if closed_recently:
+        print(f"## Closed in the last 24h ({len(closed_recently)})")
+        print()
+        for fn, owner, text, _ts in closed_recently:
+            owner_disp = owner or "you"
+            if len(text) > 160:
+                text = text[:160].rstrip() + "…"
+            print(f"- [{meeting_date(fn)}] **{owner_disp}**: {text}")
+        print()
+
+    your_items = conn.execute("""
+        SELECT meeting_filename, text FROM action_items
+        WHERE status = 'open'
+          AND LOWER(owner) LIKE '%eoin%'
+          AND meeting_filename >= ?
+        ORDER BY meeting_filename DESC LIMIT 10
+    """, (cutoff_2w,)).fetchall()
+
+    if your_items:
+        print(f"## Your open commitments (last 2 weeks, {len(your_items)} shown)")
+        print()
+        for fn, text in your_items:
+            cat = meeting_category(fn)
+            if len(text) > 180:
+                text = text[:180].rstrip() + "…"
+            print(f"- [{meeting_date(fn)} {cat}] {text}")
+        print()
+
+    others = conn.execute("""
+        SELECT meeting_filename, owner, text FROM action_items
+        WHERE status = 'open'
+          AND owner IS NOT NULL
+          AND LOWER(owner) NOT LIKE '%eoin%'
+          AND meeting_filename >= ?
+          AND meeting_filename < ?
+        ORDER BY meeting_filename ASC LIMIT 12
+    """, (cutoff_4w, cutoff_2w)).fetchall()
+
+    if others:
+        print("## Others owe you (2–4 weeks old, oldest first)")
+        print()
+        for fn, owner, text in others:
+            if len(text) > 150:
+                text = text[:150].rstrip() + "…"
+            print(f"- [{meeting_date(fn)}] **{owner}**: {text}")
+        print()
+
+    conn.close()
+
+
+def cmd_stale_nudge(args):
+    """Weekly stale-commitment nudge. Designed for Friday 06:30 launchd run.
+    Shows YOUR open commitments older than N weeks — the items the daily
+    morning brief misses because it only looks back 2 weeks. Grouped by
+    project, top per_project oldest per project, hard cap total."""
+    today = _dt.date.today()
+    weeks = getattr(args, "weeks", 3)
+    per_project = getattr(args, "per_project", 3)
+    cap = getattr(args, "cap", 15)
+    cutoff = (today - _dt.timedelta(weeks=weeks)).isoformat()
+    conn = get_conn(GRAPH_DB)
+    rows = conn.execute("""
+        SELECT meeting_filename, text FROM action_items
+        WHERE status = 'open'
+          AND LOWER(owner) LIKE '%eoin%'
+          AND meeting_filename < ?
+        ORDER BY meeting_filename ASC
+    """, (cutoff,)).fetchall()
+
+    print(f"# Stale commitments — {today.strftime('%A %d %B %Y')}")
+    print()
+
+    if not rows:
+        print(f"No open Eoin-owned items older than {weeks} weeks. Inbox zero.")
+        conn.close()
+        return
+
+    by_proj = {}
+    for fn, text in rows:
+        cat = meeting_category(fn)
+        by_proj.setdefault(cat, []).append((fn, text))
+
+    total_stale = len(rows)
+    print(f"_{total_stale} of your open items are older than {weeks} weeks. "
+          f"Showing top {per_project} per project (cap {cap})._")
+    print()
+    print("For each: **do it**, **close it** (`query_graph.py done \"<text fragment>\"`), or explicitly defer.")
+    print()
+
+    shown_total = 0
+    for proj in sorted(by_proj, key=lambda p: -len(by_proj[p])):
+        if shown_total >= cap:
+            break
+        items = by_proj[proj][:per_project]
+        print(f"## {proj} ({len(by_proj[proj])} stale total)")
+        print()
+        for fn, text in items:
+            if shown_total >= cap:
+                break
+            date_s = meeting_date(fn)
+            try:
+                age_weeks = (today - _dt.date.fromisoformat(date_s)).days // 7
+                age_str = f"{age_weeks}w old"
+            except ValueError:
+                age_str = "?"
+            if len(text) > 200:
+                text = text[:200].rstrip() + "…"
+            print(f"- [{date_s} · {age_str}] {text}")
+            shown_total += 1
+        print()
+
+    if total_stale > shown_total:
+        print(f"_… and {total_stale - shown_total} more stale items not shown. "
+              f"`query_graph.py open --person 'Eoin Lane'` for the full list._")
+
+    conn.close()
+
+
 def cmd_review(args):
     conn = get_conn(GRAPH_DB)
     today = _dt.date.today()
@@ -1189,6 +1717,9 @@ def main():
     p_open = sub.add_parser("open", help="List open action items")
     p_open.add_argument("--project", "-p", help="Filter by project/category (e.g. DCC, NTA)")
     p_open.add_argument("--person", help="Filter by assigned person")
+    p_open.add_argument("--by-date", action="store_true",
+                        help="Use strict date-desc ordering (legacy). Default is priority-weighted "
+                             "(item age × relationship recency).")
 
     p_done = sub.add_parser("done", help="Mark action items as done")
     p_done.add_argument("target", nargs="?", help="Action item ID or search text")
@@ -1201,6 +1732,9 @@ def main():
     p_hist.add_argument("name", nargs="?", help="Person name")
     p_hist.add_argument("--limit", "-n", type=int, default=10)
 
+    p_ctx = sub.add_parser("context", help="Compact context block for a person — load before drafting outbound email/chat")
+    p_ctx.add_argument("name", nargs="?", help="Person name")
+
     p_tags = sub.add_parser("tags", help="Browse and search tags/concepts")
     p_tags.add_argument("search", nargs="?", help="Search for a tag")
     p_tags.add_argument("--project", "-p", help="Filter by project/category")
@@ -1208,6 +1742,13 @@ def main():
     p_synth = sub.add_parser("synthesise", help="Progressive summarisation for a person or project")
     p_synth.add_argument("name", nargs="?", help="Person name")
     p_synth.add_argument("--project", "-p", help="Synthesise a project instead of a person")
+
+    p_brief = sub.add_parser("brief", help="Daily morning brief (launchd 06:30 friendly)")
+
+    p_stale = sub.add_parser("stale-nudge", help="Weekly Friday nudge: Eoin's open commitments older than N weeks")
+    p_stale.add_argument("--weeks", type=int, default=3, help="Age threshold in weeks (default 3)")
+    p_stale.add_argument("--per-project", type=int, default=3, help="Max items per project (default 3)")
+    p_stale.add_argument("--cap", type=int, default=15, help="Hard cap on total items shown (default 15)")
 
     p_review = sub.add_parser("review", help="Weekly review digest")
     p_review.add_argument("--weeks", "-w", type=int, default=1, help="How many weeks back (default: current week)")
@@ -1239,10 +1780,16 @@ def main():
         cmd_decisions(args)
     elif args.command == "history":
         cmd_history(args)
+    elif args.command == "context":
+        cmd_context(args)
     elif args.command == "tags":
         cmd_tags(args)
     elif args.command == "synthesise":
         cmd_synthesise(args)
+    elif args.command == "brief":
+        cmd_brief(args)
+    elif args.command == "stale-nudge":
+        cmd_stale_nudge(args)
     elif args.command == "review":
         cmd_review(args)
     elif args.command == "stats":

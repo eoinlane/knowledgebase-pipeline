@@ -12,7 +12,16 @@ Usage:
 import argparse, json, os, re, subprocess, sys, time, urllib.request
 from datetime import datetime
 
+# Import shared classify prompt — single source of truth, same text used by
+# the live pipeline at ubuntu/classify_transcript.py.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from shared.prompts import CLASSIFY_SYSTEM_PROMPT
+from shared.config import HAIKU_MODEL, SONNET_MODEL, LITELLM_URL_REMOTE
+
 OLLAMA_URL_DEFAULT = "http://192.168.0.70:11434/api/chat"
+LITELLM_URL_DEFAULT = LITELLM_URL_REMOTE
 UBUNTU_HOST = "eoin@nvidiaubuntubox"
 TRANSCRIPT_CACHE = "/tmp/benchmark_transcripts"
 
@@ -44,38 +53,8 @@ BENCHMARK_SET = [
      "label": "personal-long"},
 ]
 
-CLASSIFY_SYSTEM_PROMPT = """You are an AI assistant that classifies meeting transcripts for Eoin Lane, an AI consultant based in Dublin.
-
-CATEGORIES (pick exactly one):
-- NTA       — National Transport Authority. Eoin and Cathal are Org Group advisors to NTA, reporting to Declan Sheehan (CTO).
-- DCC       — Dublin City Council. AI strategy, Gen AI Lab, Building Control/DAC, ADAPT partnership.
-- Diotima   — Small AI company at Trinity. Key people: Siobhan Ryan (co-founder), Jonathan (co-founder), Masa/Mahsa (ML engineer).
-- ADAPT     — ADAPT Research Centre embedded at DCC. Key people: Declan (lead), Kaiser/Kizzer (researcher), Ashish (head).
-- TBS       — Trinity Business School. Eoin as adjunct lecturer, executive programmes.
-- Paradigm  — Fintech/banking AI startup. Key people: Guy (architect), Arjit/Arjun (engineering), Sarah (commercial).
-- other:blank    — Empty recording, one-word fragments, accidental recording, no meaningful content.
-- other:personal — Personal matters (e.g. Swiss legal case with Laurent).
-- other:conference — Conference or external event recordings.
-- other:lgma — LGMA (Local Government Management Agency) recordings.
-
-DISAMBIGUATION RULES:
-- "Siobhan" alone: if context is EdTech/ethics/Diotima platform → Diotima. If context is NTA/transport/governance → NTA.
-- "Jonathan" or "Masa"/"Mahsa" mentioned → Diotima.
-- CAD drawings / Part M / Building Control / Disability Access Certificate (DAC) → DCC.
-- "Owen Lane" = Eoin Lane (transcription error). "Cahal" = Cathal (transcription error). "NCA" = NTA (transcription error).
-- Neil (Org Group London, Advisory Services head) and Mark (Org Group commercial) are NTA-related contacts — calls with them about the NTA engagement → NTA.
-- Morgan McKinley / Org Group discussions about placing Eoin at NTA → NTA.
-- other:blank ONLY for truly empty, silent, inaudible, or single-word/fragment recordings with no real content.
-- other:personal = any personal content: consumer tech discussions, family, legal matters, personal reviews, non-work topics.
-- Welsh or Korean text in what should be an English recording → likely other:blank.
-
-OUTPUT: Respond with ONLY a JSON object, no explanation, no markdown, no <think> tags:
-{
-  "category": "<one of the categories above>",
-  "topic": "<short topic label>",
-  "summary": "<2-3 sentence summary of what was discussed>",
-  "key_people": "<comma-separated list of names mentioned>"
-}"""
+# CLASSIFY_SYSTEM_PROMPT is imported above from shared.prompts.
+# Single source of truth — see shared/prompts.py.
 
 SPEAKER_ID_SYSTEM_PROMPT = """You identify speakers in meeting transcripts. Given a transcript with [SPEAKER_XX] labels and a list of likely attendees, map each speaker label to a real name.
 
@@ -114,7 +93,10 @@ def read_transcript(uuid):
 
 
 def call_ollama(model, messages, ollama_url):
-    """POST to Ollama, return (response_dict, wall_time_seconds)."""
+    """POST to Ollama, return (normalized_dict, wall_time_seconds).
+    Returns normalized fields used by downstream code (content, eval_count,
+    eval_duration, prompt_eval_count, load_duration) so the LiteLLM path
+    can produce the same shape."""
     payload = json.dumps({
         "model": model,
         "messages": messages,
@@ -139,6 +121,65 @@ def call_ollama(model, messages, ollama_url):
         return {"error": str(e)}, wall
 
 
+def call_litellm(model, messages, litellm_url):
+    """POST to LiteLLM proxy (OpenAI-compatible). Returns (ollama-shaped dict,
+    wall_time) so the calling code doesn't need to branch on provider.
+    Normalises: message.content, eval_count, eval_duration, prompt_eval_count,
+    load_duration. Cloud calls have no separate model-load latency so
+    load_duration is reported as 0."""
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "temperature": 0,
+    }).encode()
+
+    req = urllib.request.Request(
+        litellm_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            raw = json.loads(resp.read())
+        wall = time.monotonic() - t0
+    except Exception as e:
+        wall = time.monotonic() - t0
+        return {"error": str(e)}, wall
+
+    if "error" in raw:
+        return raw, wall
+
+    # Normalise to ollama-shaped dict
+    try:
+        content = raw["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return {"error": f"unexpected response shape: {str(raw)[:200]}"}, wall
+
+    usage = raw.get("usage", {}) or {}
+    completion_tokens = usage.get("completion_tokens", 0)
+    prompt_tokens = usage.get("prompt_tokens", 0)
+
+    normalised = {
+        "message": {"content": content},
+        # Ollama reports eval_duration in nanoseconds; mirror that for downstream code
+        "eval_count": completion_tokens,
+        "eval_duration": int(wall * 1e9),
+        "prompt_eval_count": prompt_tokens,
+        "load_duration": 0,
+    }
+    return normalised, wall
+
+
+def call_llm(provider, model, messages, urls):
+    """Dispatch to the right provider. urls is {'ollama': ..., 'litellm': ...}."""
+    if provider == "ollama":
+        return call_ollama(model, messages, urls["ollama"])
+    if provider == "haiku":
+        return call_litellm(model, messages, urls["litellm"])
+    raise ValueError(f"Unknown provider: {provider}")
+
+
 def parse_response(raw_content):
     """Strip <think> blocks, extract JSON."""
     clean = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL).strip()
@@ -156,13 +197,13 @@ def parse_response(raw_content):
     return parsed, think_chars, len(clean)
 
 
-def benchmark_classify(model, transcript_text, ollama_url):
+def benchmark_classify(model, transcript_text, urls, provider="ollama"):
     content = transcript_text[:6000]
     messages = [
         {"role": "system", "content": CLASSIFY_SYSTEM_PROMPT},
         {"role": "user", "content": f"Classify this transcript:\n\n{content}"}
     ]
-    result, wall = call_ollama(model, messages, ollama_url)
+    result, wall = call_llm(provider, model, messages, urls)
     if "error" in result:
         return {"task": "classify", "success": False, "error": result["error"], "wall_time": wall}
 
@@ -185,7 +226,7 @@ def benchmark_classify(model, transcript_text, ollama_url):
     }
 
 
-def benchmark_speaker_id(model, transcript_text, key_people, ollama_url):
+def benchmark_speaker_id(model, transcript_text, key_people, urls, provider="ollama"):
     # Extract speaker labels from transcript
     speakers = sorted(set(re.findall(r'\[SPEAKER_\d+\]', transcript_text)))
     if not speakers:
@@ -199,7 +240,7 @@ def benchmark_speaker_id(model, transcript_text, key_people, ollama_url):
         {"role": "system", "content": SPEAKER_ID_SYSTEM_PROMPT},
         {"role": "user", "content": f"{attendee_hint}\n\nTranscript:\n{sample}"}
     ]
-    result, wall = call_ollama(model, messages, ollama_url)
+    result, wall = call_llm(provider, model, messages, urls)
     if "error" in result:
         return {"task": "speaker_id", "success": False, "error": result["error"], "wall_time": wall}
 
@@ -325,17 +366,31 @@ def print_results(model, results):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Benchmark Ollama models for pipeline tasks")
-    parser.add_argument("--model", required=True, help="Model name (e.g. deepseek-r1:14b, qwen2.5:14b)")
+    parser = argparse.ArgumentParser(description="Benchmark Ollama or Anthropic-via-LiteLLM models for pipeline tasks")
+    parser.add_argument("--model", help="Model name. Omit when --provider=haiku to default to pinned HAIKU_MODEL")
+    parser.add_argument("--provider", default="ollama", choices=["ollama", "haiku"],
+                        help="Which backend to call (default: ollama). 'haiku' routes via LiteLLM proxy.")
     parser.add_argument("--ollama-url", default=OLLAMA_URL_DEFAULT, help="Ollama API URL")
+    parser.add_argument("--litellm-url", default=LITELLM_URL_DEFAULT, help="LiteLLM proxy URL (OpenAI-compatible)")
     parser.add_argument("--tasks", default="classify,speaker_id", help="Comma-separated tasks to benchmark")
     parser.add_argument("--no-fetch", action="store_true", help="Skip fetching transcripts (use cache)")
     args = parser.parse_args()
 
-    tasks = [t.strip() for t in args.tasks.split(",")]
+    # Default model selection when --provider=haiku and no model given
+    if not args.model:
+        if args.provider == "haiku":
+            args.model = HAIKU_MODEL
+        else:
+            parser.error("--model is required when --provider=ollama")
 
-    print(f"Benchmarking: {args.model}")
-    print(f"Ollama URL:   {args.ollama_url}")
+    tasks = [t.strip() for t in args.tasks.split(",")]
+    urls = {"ollama": args.ollama_url, "litellm": args.litellm_url}
+
+    print(f"Benchmarking: {args.model}  (provider={args.provider})")
+    if args.provider == "ollama":
+        print(f"Ollama URL:   {args.ollama_url}")
+    else:
+        print(f"LiteLLM URL:  {args.litellm_url}")
     print(f"Tasks:        {', '.join(tasks)}")
     print(f"Transcripts:  {len(BENCHMARK_SET)}")
 
@@ -344,9 +399,9 @@ def main():
         print("\nFetching transcripts from Ubuntu...")
         fetch_transcripts()
 
-    # Warm up model
+    # Warm up
     print(f"\nWarming up {args.model}...")
-    call_ollama(args.model, [{"role": "user", "content": "Say OK"}], args.ollama_url)
+    call_llm(args.provider, args.model, [{"role": "user", "content": "Say OK"}], urls)
 
     results = []
     for i, item in enumerate(BENCHMARK_SET, 1):
@@ -358,7 +413,7 @@ def main():
         print(f"  [{i}/{len(BENCHMARK_SET)}] {item['label']} ({item['lines']}L)...", end="", flush=True)
 
         if "classify" in tasks:
-            r = benchmark_classify(args.model, transcript, args.ollama_url)
+            r = benchmark_classify(args.model, transcript, urls, args.provider)
             r["label"] = item["label"]
             r["uuid"] = item["uuid"]
             r["ground_truth_cat"] = item["category"]
@@ -372,7 +427,7 @@ def main():
             print(f" classify={r['wall_time']}s", end="", flush=True)
 
         if "speaker_id" in tasks:
-            r = benchmark_speaker_id(args.model, transcript, item["key_people"], args.ollama_url)
+            r = benchmark_speaker_id(args.model, transcript, item["key_people"], urls, args.provider)
             r["label"] = item["label"]
             r["uuid"] = item["uuid"]
             results.append(r)
@@ -383,12 +438,17 @@ def main():
 
     print_results(args.model, results)
 
-    # Save JSON
+    # Save JSON — include provider so result files are self-describing
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_slug = args.model.replace(":", "_").replace("/", "_")
     out_file = f"benchmark_results_{model_slug}_{ts}.json"
     with open(out_file, "w") as f:
-        json.dump({"model": args.model, "timestamp": ts, "results": results}, f, indent=2, default=str)
+        json.dump({
+            "model": args.model,
+            "provider": args.provider,
+            "timestamp": ts,
+            "results": results,
+        }, f, indent=2, default=str)
     print(f"\nResults saved to {out_file}")
 
 

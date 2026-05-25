@@ -1,0 +1,315 @@
+{
+  "model": "deepseek-r1:14b",
+  "timestamp": "20260524_162314",
+  "results": [
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 7.3,
+      "eval_count": 36,
+      "eval_duration": 4.8,
+      "tok_per_sec": 7.4,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 1506,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7",
+      "ground_truth_cat": "other:blank",
+      "cat_match": "exact",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 57.2,
+      "eval_count": 397,
+      "eval_duration": 55.6,
+      "tok_per_sec": 7.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2099,
+      "load_duration": 0.08,
+      "output": {
+        "category": "Paradigm",
+        "topic": "Business Meeting",
+        "summary": "The conversation begins with small talk about children being off school but shifts to mention an email from Vander and a call with the core Rocket team, indicating a business context related to Paradigm.",
+        "key_people": "Vander"
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF",
+      "ground_truth_cat": "Paradigm",
+      "cat_match": "exact",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 103.0,
+      "eval_count": 572,
+      "eval_duration": 73.8,
+      "tok_per_sec": 7.8,
+      "think_overhead_pct": 0,
+      "speaker_count": 4,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_02": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_04": {
+          "name": "Argent",
+          "confidence": "medium"
+        }
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF"
+    },
+    {
+      "task": "classify",
+      "success": false,
+      "wall_time": 99.0,
+      "eval_count": 468,
+      "eval_duration": 65.7,
+      "tok_per_sec": 7.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 4047,
+      "load_duration": 26.97,
+      "output": null,
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06",
+      "ground_truth_cat": "DCC",
+      "cat_match": "fail"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 80.7,
+      "eval_count": 494,
+      "eval_duration": 74.1,
+      "tok_per_sec": 6.7,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3607,
+      "load_duration": 0.09,
+      "output": {
+        "category": "Diotima",
+        "topic": "Textbook Access and Licensing Discussion",
+        "summary": "Eoin Lane and Carl discussed accessing the textbook 'Life of Science' by C.J. Fellin, focusing on its availability as a PDF and eBook. They explored alternatives, including older versions and other educational resources, and considered contacting publishers for licensing permissions.",
+        "key_people": "Eoin Lane, Carl, Siobhan"
+      },
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A",
+      "ground_truth_cat": "Diotima",
+      "cat_match": "exact",
+      "kp_overlap": 0.4
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A"
+    },
+    {
+      "task": "classify",
+      "success": false,
+      "wall_time": 101.5,
+      "eval_count": 639,
+      "eval_duration": 94.7,
+      "tok_per_sec": 6.7,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3610,
+      "load_duration": 0.09,
+      "output": null,
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A",
+      "ground_truth_cat": "NTA",
+      "cat_match": "fail"
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 100.1,
+      "eval_count": 695,
+      "eval_duration": 96.8,
+      "tok_per_sec": 7.2,
+      "think_overhead_pct": 0,
+      "speaker_count": 5,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_03": {
+          "name": "Owen Lane",
+          "confidence": "low"
+        },
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_04": {
+          "name": null,
+          "confidence": "low"
+        }
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 62.3,
+      "eval_count": 376,
+      "eval_duration": 56.7,
+      "tok_per_sec": 6.6,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3415,
+      "load_duration": 0.08,
+      "output": {
+        "category": "ADAPT",
+        "topic": "AI Governance Discussion",
+        "summary": "The meeting involves a discussion between Eoin Lane and Declan McKibben about AI governance and related projects. They touch on topics such as legislation similar to the EU-AI Act, challenges in implementing AI regulations, and personal anecdotes about managing technology use among teenagers.",
+        "key_people": "Declan McKibben, Eoin Lane"
+      },
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7",
+      "ground_truth_cat": "ADAPT",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 92.2,
+      "eval_count": 592,
+      "eval_duration": 88.8,
+      "tok_per_sec": 6.7,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3160,
+      "load_duration": 0.1,
+      "output": {
+        "category": "DCC",
+        "topic": "AI Strategy & Proof of Concepts",
+        "summary": "Eoin Lane discusses the development of an AI strategy for Dublin City Council (DCC), including workshops with various business units, identification of challenges, and prioritization of ideas to create proof-of-concepts (POCs). The focus is on exploring generative AI applications, such as document automation for tender processes, while considering technological feasibility and impact. Eoin also mentions the creation of an AI guidebook for staff and ongoing projects in a lab context.",
+        "key_people": "Eoin Lane, Cathal Bellew"
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF",
+      "ground_truth_cat": "DCC",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 45.9,
+      "eval_count": 325,
+      "eval_duration": 43.6,
+      "tok_per_sec": 7.5,
+      "think_overhead_pct": 0,
+      "speaker_count": 1,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "low"
+        }
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 62.6,
+      "eval_count": 375,
+      "eval_duration": 56.4,
+      "tok_per_sec": 6.6,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3623,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:personal",
+        "topic": "Family and Relocation Discussion",
+        "summary": "Eoin discusses his family's relocation from the US to Ireland, their current living situation in IFSC, and concerns about raising children in today's world. The conversation also touches on personal experiences and reflections on parenting.",
+        "key_people": "Eoin Lane, Conor, Chris"
+      },
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1",
+      "ground_truth_cat": "other:personal",
+      "cat_match": "exact",
+      "kp_overlap": 0.5
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1"
+    }
+  ]
+}

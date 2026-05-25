@@ -10,13 +10,19 @@ PIPELINE_DIR = os.environ.get("PIPELINE_DIR", os.path.expanduser("~/knowledgebas
 if os.path.isdir(PIPELINE_DIR) and PIPELINE_DIR not in sys.path:
     sys.path.insert(0, PIPELINE_DIR)
 try:
-    from shared.config import OLLAMA_URL, MODEL
+    from shared.config import OLLAMA_URL, MODEL, HAIKU_MODEL, LITELLM_URL
 except ImportError:
     OLLAMA_URL = "http://192.168.0.70:11434/api/chat"
     MODEL = "qwen2.5:14b"
+    HAIKU_MODEL = "claude-haiku-4-5"
+    LITELLM_URL = "http://localhost:4000/v1/chat/completions"
 
-LITELLM_URL = "http://localhost:4000/v1/chat/completions"
-LITELLM_MODEL = "claude-haiku-4-5"
+# The classify prompt is the source of truth — if shared/prompts.py isn't
+# importable, fail loudly. Running classification with a None/empty prompt
+# would silently produce garbage. No hardcoded fallback by design.
+from shared.prompts import CLASSIFY_SYSTEM_PROMPT as SYSTEM_PROMPT
+
+LITELLM_MODEL = HAIKU_MODEL
 
 CSV_PATH = sys.argv[2]
 transcript_path = sys.argv[1]
@@ -33,41 +39,8 @@ for line in content.splitlines()[:3]:
     if line.startswith("Recorded:"):
         recorded_at = line.replace("Recorded:", "").strip()
 
-SYSTEM_PROMPT = """You are an AI assistant that classifies meeting transcripts for Eoin Lane, an AI consultant based in Dublin.
-
-CATEGORIES (pick exactly one):
-- NTA       — National Transport Authority. Eoin and Cathal are Org Group advisors to NTA, reporting to Declan Sheehan (CTO).
-- DCC       — Dublin City Council. AI strategy, Gen AI Lab, Building Control/DAC, ADAPT partnership.
-- Diotima   — Small AI company at Trinity. Key people: Siobhan Ryan (co-founder), Jonathan (co-founder), Masa/Mahsa (ML engineer).
-- ADAPT     — ADAPT Research Centre embedded at DCC. Key people: Declan (lead), Kaiser/Kizzer (researcher), Ashish (head).
-- TBS       — Trinity Business School. Eoin as adjunct lecturer, executive programmes.
-- Paradigm  — Fintech/banking AI startup. Key people: Guy (architect), Arjit/Arjun (engineering), Sarah (commercial).
-- other:blank    — Empty recording, one-word fragments, accidental recording, no meaningful content.
-- other:personal — Personal matters (e.g. Swiss legal case with Laurent).
-- other:conference — Conference or external event recordings.
-- other:lgma — LGMA (Local Government Management Agency) recordings.
-
-DISAMBIGUATION RULES:
-- "Cathal" or "Cathal Bellew" alone (no DCC-specific people present) → NTA. Cathal Bellew is an Org Group advisor to NTA. Meetings with him about brown bags, governance, planning, project updates = NTA even if DCC topics are discussed.
-- "Siobhan" alone: if context is EdTech/ethics/Diotima platform → Diotima. If context is NTA/transport/governance → NTA.
-- "Jonathan" or "Masa"/"Mahsa" mentioned → Diotima.
-- CAD drawings / Part M / Building Control / Disability Access Certificate (DAC) → DCC.
-- ANY spelling variant of "Eoin Lane" is the recorder. Common WhisperX mishearings: "Owen Lane", "Eoghan Lane", "Owen Layne". Always normalise to "Eoin Lane".
-- "Cahal" / "Carla" / "Cahill" / "Cottle" / "Karl Bellew" → Cathal Bellew (NTA). "NCA" = NTA.
-- Neil (Org Group London, Advisory Services head) and Mark (Org Group commercial) are NTA-related contacts — calls with them about the NTA engagement → NTA.
-- Morgan McKinley / Org Group discussions about placing Eoin at NTA → NTA.
-- Introductory or business development calls about NTA → NTA.
-- other:blank ONLY for truly empty, silent, inaudible, or single-word/fragment recordings with no real content.
-- other:personal = any personal content: consumer tech discussions, family, legal matters, personal reviews, non-work topics. Do NOT use other:blank for recordings with actual conversation just because the topic is personal.
-- Welsh or Korean text in what should be an English recording → likely other:blank.
-
-OUTPUT: Respond with ONLY a JSON object, no explanation, no markdown, no <think> tags:
-{
-  "category": "<one of the categories above>",
-  "topic": "<short topic label, e.g. 'Use Case Discovery' or 'Building Control / DAC'>",
-  "summary": "<2-3 sentence summary of what was discussed>",
-  "key_people": "<comma-separated list of names mentioned>"
-}"""
+# SYSTEM_PROMPT is imported above from shared.prompts.CLASSIFY_SYSTEM_PROMPT.
+# Single source of truth — see shared/prompts.py.
 
 USER_PROMPT = f"Classify this transcript:\n\n{content[:6000]}"
 

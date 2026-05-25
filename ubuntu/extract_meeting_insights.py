@@ -16,14 +16,15 @@ if os.path.isdir(PIPELINE_DIR) and PIPELINE_DIR not in sys.path:
     sys.path.insert(0, PIPELINE_DIR)
 from shared.atomic_io import atomic_write_json
 try:
-    from shared.config import OLLAMA_URL, MODEL
+    from shared.config import OLLAMA_URL, MODEL, HAIKU_MODEL, LITELLM_URL
 except ImportError:
     OLLAMA_URL = "http://192.168.0.70:11434/api/chat"
     MODEL = "qwen2.5:14b"
+    HAIKU_MODEL = "claude-haiku-4-5"
+    LITELLM_URL = "http://localhost:4000/v1/chat/completions"
 
 # LiteLLM proxy for Claude Haiku (200K context, better extraction quality)
-LITELLM_URL = "http://localhost:4000/v1/chat/completions"
-LITELLM_MODEL = "claude-haiku-4-5"
+LITELLM_MODEL = HAIKU_MODEL
 USE_LITELLM = True  # Use Haiku for extraction, fall back to Ollama if unavailable
 INSIGHTS_DIR = os.path.expanduser("~/audio-inbox/Insights")
 os.makedirs(INSIGHTS_DIR, exist_ok=True)

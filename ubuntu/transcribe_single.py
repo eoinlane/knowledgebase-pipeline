@@ -8,6 +8,18 @@ import whisperx
 from whisperx.diarize import DiarizationPipeline, assign_word_speakers
 from datetime import datetime, timezone
 
+# Import shared WhisperX initial_prompt. Same sys.path pattern as
+# classify_transcript.py — PIPELINE_DIR resolves to ~/knowledgebase-pipeline/
+# so `shared.config` is importable. Falls back to a minimal default if shared/
+# isn't reachable.
+PIPELINE_DIR = os.environ.get("PIPELINE_DIR", os.path.expanduser("~/knowledgebase-pipeline"))
+if os.path.isdir(PIPELINE_DIR) and PIPELINE_DIR not in sys.path:
+    sys.path.insert(0, PIPELINE_DIR)
+try:
+    from shared.config import WHISPER_INITIAL_PROMPT
+except ImportError:
+    WHISPER_INITIAL_PROMPT = "Meeting with Eoin Lane. NTA DCC DFB ADAPT TBS Diotima Paradigm."
+
 EMBEDDINGS_DIR = "/home/eoin/audio-inbox/Embeddings"
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")  # set in environment, never hardcode
@@ -56,7 +68,15 @@ recorded_at = ts_map.get(uuid) or _mp4_creation_time(audio_file) \
     or datetime.fromtimestamp(os.path.getmtime(audio_file)).strftime("%Y-%m-%d %H:%M:%S")
 
 print(f"Loading model for {uuid}...")
-model = whisperx.load_model("large-v3", device=DEVICE, compute_type=COMPUTE_TYPE)
+# initial_prompt biases the decoder toward known names and acronyms — see
+# shared/config.py for the prompt text. Targets the recurring whisper
+# mishearing class (Owen Lane, Cathal Murphy, Aoife Mangan, Altera, etc.)
+model = whisperx.load_model(
+    "large-v3",
+    device=DEVICE,
+    compute_type=COMPUTE_TYPE,
+    asr_options={"initial_prompt": WHISPER_INITIAL_PROMPT},
+)
 diarize_model = DiarizationPipeline(token=HF_TOKEN, device=DEVICE)
 
 audio = whisperx.load_audio(audio_file)

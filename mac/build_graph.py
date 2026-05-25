@@ -106,7 +106,8 @@ def init_db(conn):
             project          TEXT,
             status           TEXT DEFAULT 'open',
             due_date         TEXT,
-            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            closed_at        TIMESTAMP
         );
 
         CREATE TABLE IF NOT EXISTS graph_edges (
@@ -566,21 +567,30 @@ def build_graph():
     ).rowcount
 
     # --- Apply manual closures from ~/.graph_closures.json ---
+    # Backwards-compatible: old format is {key: "closed"}, new format is
+    # {key: {"status": "closed", "closed_at": "2026-05-24T10:30:00"}}.
     closures_applied = 0
     if CLOSURES_FILE.exists():
         try:
             with open(CLOSURES_FILE) as f:
                 closures = json.load(f)
-            for key, status in closures.items():
+            for key, val in closures.items():
                 # Key format: "meeting_filename::action text prefix"
                 parts = key.split("::", 1)
-                if len(parts) == 2:
-                    meeting_fn, text_prefix = parts
-                    n = conn.execute(
-                        "UPDATE action_items SET status = ? WHERE meeting_filename = ? AND text LIKE ?",
-                        (status, meeting_fn, text_prefix + "%")
-                    ).rowcount
-                    closures_applied += n
+                if len(parts) != 2:
+                    continue
+                meeting_fn, text_prefix = parts
+                if isinstance(val, dict):
+                    status = val.get("status", "closed")
+                    closed_at = val.get("closed_at")
+                else:
+                    status = val
+                    closed_at = None
+                n = conn.execute(
+                    "UPDATE action_items SET status = ?, closed_at = ? WHERE meeting_filename = ? AND text LIKE ?",
+                    (status, closed_at, meeting_fn, text_prefix + "%")
+                ).rowcount
+                closures_applied += n
         except (json.JSONDecodeError, OSError):
             pass
 

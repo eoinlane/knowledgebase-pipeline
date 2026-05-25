@@ -1,0 +1,323 @@
+{
+  "model": "qwen2.5:7b",
+  "timestamp": "20260524_160929",
+  "results": [
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 1.2,
+      "eval_count": 28,
+      "eval_duration": 0.5,
+      "tok_per_sec": 55.0,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 1517,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7",
+      "ground_truth_cat": "other:blank",
+      "cat_match": "exact",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "blank-short",
+      "uuid": "05377C97-45F9-4ACA-B2A9-04EE6AAADCE7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 1.5,
+      "eval_count": 57,
+      "eval_duration": 1.1,
+      "tok_per_sec": 53.8,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 2110,
+      "load_duration": 0.08,
+      "output": {
+        "category": "other:personal",
+        "topic": "Family and Politics",
+        "summary": "The conversation primarily revolves around the speakers' children's vacation schedules, followed by a discussion on political views regarding Europe and America.",
+        "key_people": ""
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF",
+      "ground_truth_cat": "Paradigm",
+      "cat_match": "mismatch",
+      "kp_overlap": null
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 2.4,
+      "eval_count": 103,
+      "eval_duration": 1.9,
+      "tok_per_sec": 54.6,
+      "think_overhead_pct": 0,
+      "speaker_count": 4,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_02": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_03": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_04": {
+          "name": null,
+          "confidence": "low"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        },
+        "Eoin Lane": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        }
+      },
+      "label": "paradigm-short",
+      "uuid": "423513AC-098B-4BA4-B2FE-42D7669A87BF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 2.3,
+      "eval_count": 28,
+      "eval_duration": 0.5,
+      "tok_per_sec": 53.0,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 4058,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:blank",
+        "topic": "",
+        "summary": "",
+        "key_people": ""
+      },
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06",
+      "ground_truth_cat": "DCC",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "dcc-medium",
+      "uuid": "51D5BF4B-097B-4342-9FB9-FAD4A1525C06"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 2.6,
+      "eval_count": 77,
+      "eval_duration": 1.5,
+      "tok_per_sec": 52.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3618,
+      "load_duration": 0.09,
+      "output": {
+        "category": "other:personal",
+        "topic": "Book Search and Access",
+        "summary": "Eoin and Carl discussed finding an eBook version of 'The Science of Life' for educational use, but were unable to locate one. They considered contacting the publisher for permission to use it.",
+        "key_people": "Eoin Lane, Carl"
+      },
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A",
+      "ground_truth_cat": "Diotima",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.2
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "diotima-medium",
+      "uuid": "29CB537F-7D94-4C09-B3C9-F2BB146B3D6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 2.9,
+      "eval_count": 96,
+      "eval_duration": 1.8,
+      "tok_per_sec": 52.0,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3621,
+      "load_duration": 0.1,
+      "output": {
+        "category": "NTA",
+        "topic": "AI Strategy and Governance",
+        "summary": "Eoin Lane discusses potential AI use cases with colleagues from the National Transport Authority, focusing on passenger rights and data protection. The team plans to use a tool for user acceptance testing (UAT) in summer and track progress through an AOA register.",
+        "key_people": "Declan Sheehan, Kevin, Fiona, Sam, Colin"
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A",
+      "ground_truth_cat": "NTA",
+      "cat_match": "exact",
+      "kp_overlap": 0.12
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 2.9,
+      "eval_count": 114,
+      "eval_duration": 2.1,
+      "tok_per_sec": 53.8,
+      "think_overhead_pct": 0,
+      "speaker_count": 5,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_03": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": "Fiona",
+          "confidence": "high"
+        },
+        "SPEAKER_02": {
+          "name": "Alex",
+          "confidence": "high"
+        },
+        "SPEAKER_04": {
+          "name": "Declan",
+          "confidence": "high"
+        },
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "medium"
+        }
+      },
+      "label": "nta-medium",
+      "uuid": "F1E4B5AA-26BE-4692-9D82-7EF1BE1A6A6A"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 3.2,
+      "eval_count": 88,
+      "eval_duration": 1.7,
+      "tok_per_sec": 52.3,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3426,
+      "load_duration": 0.1,
+      "output": {
+        "category": "other:personal",
+        "topic": "Family and Personal Life",
+        "summary": "Eoin discusses his family life with Declan McKibben, mentioning his twin boys aged 15 and another child who is a boy and a girl. They also discuss the challenges of keeping their children away from phones.",
+        "key_people": "Eoin Lane, Declan McKibben"
+      },
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7",
+      "ground_truth_cat": "ADAPT",
+      "cat_match": "mismatch",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "adapt-medium",
+      "uuid": "19A83FCE-461B-41E6-9D24-6E0EEDE1B7E7"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 2.6,
+      "eval_count": 94,
+      "eval_duration": 1.8,
+      "tok_per_sec": 52.5,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3171,
+      "load_duration": 0.08,
+      "output": {
+        "category": "DCC",
+        "topic": "AI Implementation and Workshops",
+        "summary": "Eoin Lane discussed the process of conducting workshops with various business units within Dublin City Council to identify AI challenges, prioritize ideas, and develop proof-of-concepts in a lab context. The goal is to automate repetitive tasks like tender documentation while ensuring human oversight.",
+        "key_people": "Cathal Bellew, Eoin Lane"
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF",
+      "ground_truth_cat": "DCC",
+      "cat_match": "exact",
+      "kp_overlap": 0.0
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "wall_time": 1.5,
+      "eval_count": 46,
+      "eval_duration": 0.8,
+      "tok_per_sec": 54.7,
+      "think_overhead_pct": 0,
+      "speaker_count": 1,
+      "eoin_detected": true,
+      "names_plausible": true,
+      "output": {
+        "SPEAKER_00": {
+          "name": "Eoin Lane",
+          "confidence": "high"
+        },
+        "SPEAKER_01": {
+          "name": null,
+          "confidence": "low"
+        }
+      },
+      "label": "dcc-long",
+      "uuid": "FB47B0DF-21F5-4447-A539-7E4C5D405AFF"
+    },
+    {
+      "task": "classify",
+      "success": true,
+      "wall_time": 3.1,
+      "eval_count": 79,
+      "eval_duration": 1.5,
+      "tok_per_sec": 52.1,
+      "think_overhead_pct": 0,
+      "prompt_eval_count": 3634,
+      "load_duration": 0.08,
+      "output": {
+        "category": "other:personal",
+        "topic": "Family logistics and personal matters",
+        "summary": "Eoin Lane discusses his family life, including living in Dublin with his two boys, their move from the US, and the challenges of city living. He also mentions his father's age and background.",
+        "key_people": "Conor, Chris"
+      },
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1",
+      "ground_truth_cat": "other:personal",
+      "cat_match": "exact",
+      "kp_overlap": 0.67
+    },
+    {
+      "task": "speaker_id",
+      "success": true,
+      "skipped": true,
+      "reason": "no SPEAKER labels",
+      "wall_time": 0,
+      "label": "personal-long",
+      "uuid": "B33E5A54-3E93-4168-8E6E-DBAF4C2284D1"
+    }
+  ]
+}

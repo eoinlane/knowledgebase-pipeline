@@ -34,9 +34,15 @@ from email import policy as email_policy
 from pathlib import Path
 
 import requests
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+try:
+    from shared.config import HAIKU_MODEL
+except ImportError:
+    HAIKU_MODEL = "claude-haiku-4-5"
 
 LITELLM_URL   = "http://100.121.184.27:4000/chat/completions"
-MODEL         = "claude-haiku-4-5"
+MODEL         = HAIKU_MODEL
 
 INBOX_DIR     = Path.home() / "inbox"
 DONE_DIR      = INBOX_DIR / "done"
