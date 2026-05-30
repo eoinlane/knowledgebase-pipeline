@@ -25,6 +25,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -714,23 +715,31 @@ import sys as _sys_qg
 from pathlib import Path as _Path_qg
 _sys_qg.path.insert(0, str(_Path_qg(__file__).resolve().parent.parent))
 try:
-    from shared.config import HAIKU_MODEL, LITELLM_URL_REMOTE as LITELLM_URL
+    from shared.config import HAIKU_MODEL, OPUS_MODEL, LITELLM_URL_REMOTE as LITELLM_URL
 except ImportError:
     HAIKU_MODEL = "claude-haiku-4-5"
+    OPUS_MODEL = "claude-opus-4-7"
     LITELLM_URL = "http://100.121.184.27:4000/v1/chat/completions"
-LITELLM_MODEL = HAIKU_MODEL
+LITELLM_MODEL = HAIKU_MODEL  # default for non-synthesis calls; synthesis picks its own
 
 
-def call_haiku(system_prompt, user_prompt):
-    """Call Claude Haiku via LiteLLM proxy."""
-    payload = json.dumps({
-        "model": LITELLM_MODEL,
+def call_haiku(system_prompt, user_prompt, model=None):
+    """Call an Anthropic model via the LiteLLM proxy. Name kept for backwards
+    compatibility — earlier callers always used Haiku. Pass `model=` to override
+    (e.g. OPUS_MODEL for synthesis). Opus 4.7 dropped support for `temperature`,
+    so we skip it for Opus-family models and keep deterministic-output behaviour
+    for everything else."""
+    chosen = model or LITELLM_MODEL
+    body = {
+        "model": chosen,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "temperature": 0,
-    }).encode()
+    }
+    if "opus" not in chosen.lower():
+        body["temperature"] = 0
+    payload = json.dumps(body).encode()
     req = urllib.request.Request(
         LITELLM_URL, data=payload,
         headers={"Content-Type": "application/json"}
@@ -893,20 +902,27 @@ Be specific with names, dates, and concrete details. No filler. This is a workin
 
     user_prompt = "\n".join(parts)
 
-    # --- Call Haiku ---
-    print(f"Synthesising {entity_type}: {label} ({len(meeting_fns)} meetings, {len(actions)} actions, {len(decisions)} decisions)...")
+    # --- Call the LLM ---
+    # Opus is the default — synthesis is reasoning over many noisy inputs and
+    # the quality gap vs Haiku is material (see A/B at 2026-05-30). Use --fast
+    # to fall back to Haiku for ~20× cost reduction when the deeper read
+    # isn't needed (e.g. fast iteration / draft).
+    chosen_model = HAIKU_MODEL if getattr(args, "fast", False) else OPUS_MODEL
+    print(f"Synthesising {entity_type}: {label} "
+          f"({len(meeting_fns)} meetings, {len(actions)} actions, {len(decisions)} decisions) "
+          f"with {chosen_model}...")
 
     try:
-        result = call_haiku(system, user_prompt)
+        result = call_haiku(system, user_prompt, model=chosen_model)
     except Exception as e:
-        print(f"Error calling Haiku: {e}", file=sys.stderr)
+        print(f"Error calling {chosen_model}: {e}", file=sys.stderr)
         conn.close()
         return
 
-    # --- Store the synthesis ---
+    # --- Store the synthesis (record which model produced it) ---
     conn.execute(
         "INSERT INTO syntheses (entity_type, entity_id, text, model) VALUES (?, ?, ?, ?)",
-        (entity_type, entity_id, result, LITELLM_MODEL)
+        (entity_type, entity_id, result, chosen_model)
     )
     conn.commit()
 
@@ -1234,6 +1250,79 @@ def _push_to_reminders(picks, today_ids):
 
 _BRIEF_EXCLUDED_CALENDARS = {"cal_personal.txt", "cal_home.txt"}
 
+# Calendar events to skip for the coverage check — room bookings, holds, wellness,
+# all-staff non-meeting events. These don't generate recordings and shouldn't be
+# flagged as "missing transcripts". Keep the list conservative — a false-positive
+# in the gap report is annoying but recoverable; a false-negative hides real misses.
+_BRIEF_NONMEETING_TITLES = {"Room", "test", "Hold", "Block", "Lunch"}
+_BRIEF_NONMEETING_KEYWORDS = (
+    "wellness", "menopause", "sleep for restorative",
+    "out of office", "ooo", "annual leave", "holiday",
+    "do not book", "blocked",
+)
+
+_STUCK_RECORDINGS_FILE = "/Users/eoin/.local/share/kb/stuck_recordings.txt"
+
+
+def _is_nonmeeting_event(evt):
+    """Return True if a calendar event isn't a real meeting (doesn't need a
+    recording). Conservative — only filters obvious non-meetings."""
+    if evt["start_time"] == "all-day":
+        return True
+    title = evt["title"]
+    if title in _BRIEF_NONMEETING_TITLES:
+        return True
+    title_l = title.lower()
+    for kw in _BRIEF_NONMEETING_KEYWORDS:
+        if kw in title_l:
+            return True
+    return False
+
+
+def _recording_minutes_for_date(d):
+    """Return list of meeting-recording start times (minutes-since-midnight) on
+    date d, parsed from KB meeting filenames of the form
+    YYYY-MM-DD_HHMM*_CATEGORY_slug.md. Empty list if KB not built yet for d."""
+    from pathlib import Path
+    kb_meetings = Path(os.path.expanduser("~/knowledge_base/meetings"))
+    if not kb_meetings.is_dir():
+        return []
+    prefix = d.strftime("%Y-%m-%d_")
+    mins = []
+    for f in kb_meetings.glob(f"{prefix}*.md"):
+        parts = f.stem.split("_")
+        if len(parts) >= 2 and len(parts[1]) >= 4 and parts[1][:4].isdigit():
+            hh = int(parts[1][:2])
+            mm = int(parts[1][2:4])
+            mins.append(hh * 60 + mm)
+    return mins
+
+
+def _meetings_without_recordings(days_back=7, window_minutes=90):
+    """For the last `days_back` days (excluding today), find calendar events with
+    no matching KB recording within ±window_minutes of their start time. Catches
+    Stage A failures (iPhone export shortcut didn't fire) and forgotten Plaud
+    recordings within hours instead of days."""
+    today = _dt.date.today()
+    gaps = []
+    for d_offset in range(1, days_back + 1):
+        d = today - _dt.timedelta(days=d_offset)
+        events = _parse_calendar_events_on(d)
+        if not events:
+            continue
+        recording_mins = _recording_minutes_for_date(d)
+        for evt in events:
+            if _is_nonmeeting_event(evt):
+                continue
+            try:
+                eh, em = evt["start_time"].split(":")
+                evt_min = int(eh) * 60 + int(em)
+            except (ValueError, AttributeError):
+                continue
+            if not any(abs(rmin - evt_min) <= window_minutes for rmin in recording_mins):
+                gaps.append((d, evt))
+    return gaps
+
 
 def _parse_calendar_events_on(target_date):
     """Read all calendar exports, return events on target_date.
@@ -1403,6 +1492,54 @@ def cmd_brief(args):
         print("## Today")
         print()
         print("No calendar meetings scheduled.")
+        print()
+
+    # --- Pipeline gaps: stuck 0-byte placeholders + missing recordings ---
+    # Both sections surface Stage A failures (Apple Notes export step didn't
+    # fire, or recording sat in Notes data store and never reached iCloud).
+    # Catching these within hours instead of days; the 27 May Alex catch-up
+    # incident motivated this — the recording was in Notes for ~36h before
+    # being discovered.
+    try:
+        if os.path.exists(_STUCK_RECORDINGS_FILE):
+            with open(_STUCK_RECORDINGS_FILE) as f:
+                stuck = [line.strip() for line in f if line.strip()]
+            if stuck:
+                print(f"## ⚠ Stuck 0-byte recordings ({len(stuck)})")
+                print()
+                print("_Apple Notes recordings sitting in iCloud as empty placeholders for >24h. "
+                      "Likely a failed export — either trigger the iPhone shortcut again or "
+                      "delete the placeholder._")
+                print()
+                for line in stuck:
+                    parts = line.split("|")
+                    fname = parts[0]
+                    age_h = ""
+                    if len(parts) >= 3 and parts[2].isdigit():
+                        age_h = f" (stuck {int(parts[2]) // 3600}h)"
+                    print(f"- `{fname}`{age_h}")
+                print()
+    except OSError:
+        pass
+
+    gaps = _meetings_without_recordings(days_back=7)
+    if gaps:
+        print(f"## ⚠ Meetings without recordings (last 7 days, {len(gaps)})")
+        print()
+        print("_Calendar events with no matching transcript within ±90 min. "
+              "Check whether the meeting actually happened, the recording is "
+              "stuck in Apple Notes, or you forgot to record._")
+        print()
+        for d, evt in gaps:
+            cleaned = []
+            for a in evt.get("attendees", []):
+                if not a or "eoin" in a.lower():
+                    continue
+                disp, ok = _clean_attendee(a)
+                if ok:
+                    cleaned.append(disp)
+            att_str = f" — _With:_ {', '.join(cleaned[:3])}" if cleaned else ""
+            print(f"- **{d.strftime('%a %d %b')} {evt['start_time']}** — {evt['title']}{att_str}")
         print()
 
     cutoff_2w = (today - _dt.timedelta(weeks=2)).isoformat()
@@ -1742,6 +1879,8 @@ def main():
     p_synth = sub.add_parser("synthesise", help="Progressive summarisation for a person or project")
     p_synth.add_argument("name", nargs="?", help="Person name")
     p_synth.add_argument("--project", "-p", help="Synthesise a project instead of a person")
+    p_synth.add_argument("--fast", action="store_true",
+                         help="Use Haiku (cheap, fast, shallower) instead of the Opus default")
 
     p_brief = sub.add_parser("brief", help="Daily morning brief (launchd 06:30 friendly)")
 

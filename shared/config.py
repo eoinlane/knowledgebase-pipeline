@@ -20,6 +20,7 @@ OLLAMA_MODEL_DIGEST_EXPECTED = "sha256:7cdf5a0187d5c58cc5d369b255592f7841d1c4696
 # name; through LiteLLM, use the short alias the YAML registers.
 HAIKU_MODEL = "claude-haiku-4-5"
 SONNET_MODEL = "claude-sonnet-4-6"
+OPUS_MODEL = "claude-opus-4-7"
 HAIKU_MODEL_PINNED = "claude-haiku-4-5-20251001"  # underlying Anthropic version
 LITELLM_URL = "http://localhost:4000/v1/chat/completions"
 LITELLM_URL_REMOTE = "http://100.121.184.27:4000/v1/chat/completions"

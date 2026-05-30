@@ -16,6 +16,9 @@ TMP_DIR="/tmp/notes-audio-sync"
 UBUNTU_HOST="eoin@nvidiaubuntubox"
 UBUNTU_DIR="/home/eoin/audio-inbox/Notes"
 LOG="/Users/eoin/.local/bin/sync-notes-audio.log"
+STUCK_FILE="/Users/eoin/.local/share/kb/stuck_recordings.txt"
+STUCK_NEW="/tmp/sync-notes-stuck.new.$$"
+STUCK_AGE_SECS=86400   # surface 0-byte files older than this (24h)
 
 # Sleep protection (Mac is mobile, see backup-voice-state.sh for context)
 if [ "${CAFFEINATED:-0}" != "1" ]; then
@@ -24,6 +27,10 @@ fi
 trap 'rc=$?; [ "$rc" -ne 0 ] && echo "$(date "+%Y-%m-%d %H:%M:%S"): ABORT rc=$rc (line $LINENO)" >> "$LOG"' EXIT
 
 echo "$(date): Sync starting..." >> "$LOG"
+
+# Track stuck 0-byte placeholders this run; atomically replace canonical file at end.
+mkdir -p "$(dirname "$STUCK_FILE")"
+: > "$STUCK_NEW"
 
 # Step 1: Copy new .m4a files to /tmp using cp + retry.
 #
@@ -63,6 +70,21 @@ find "$AUDIO_DIR" -name "*.m4a" | while read -r src; do
     sleep 5
     size2=$(stat -f '%z' "$src" 2>/dev/null || echo 0)
     if [ "$size1" != "$size2" ] || [ "$size1" -eq 0 ]; then
+        # Distinguish "still syncing" (transient) from "stuck 0-byte placeholder"
+        # (persistent) — the latter happens when Apple Notes export crashed
+        # mid-write and the file sits at 0 bytes forever. Without this branch
+        # the size-stability check silently re-skips the same file every 5 min
+        # for days (see 597B492C orphan, 2026-05-24 → 2026-05-27).
+        if [ "$size1" -eq 0 ]; then
+            mtime=$(stat -f '%m' "$src" 2>/dev/null || echo 0)
+            age=$(( $(date +%s) - mtime ))
+            if [ "$age" -gt "$STUCK_AGE_SECS" ]; then
+                hours=$(( age / 3600 ))
+                echo "$(date): STUCK $fname (0 bytes for ${hours}h — failed Apple Notes export?)" >> "$LOG"
+                echo "$fname|$mtime|$age" >> "$STUCK_NEW"
+                continue
+            fi
+        fi
         echo "$(date): SKIP $fname (size unstable: $size1 → $size2, may still be syncing)" >> "$LOG"
         continue
     fi
@@ -97,3 +119,7 @@ if [ $? -eq 0 ]; then
 else
     echo "$(date): Sync had errors (see above)" >> "$LOG"
 fi
+
+# Atomically publish this run's stuck-orphan snapshot so the morning brief
+# always reads a complete, consistent view (or an empty file if nothing stuck).
+mv -f "$STUCK_NEW" "$STUCK_FILE"
