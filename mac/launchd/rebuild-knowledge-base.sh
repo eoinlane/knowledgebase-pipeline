@@ -68,8 +68,17 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# Step 4: Open WebUI upload disabled — replaced by Claude Code + query_graph.py
-# To re-enable: /usr/local/bin/python3 /Users/eoin/upload_knowledge_base_incremental.py
+# Step 4: Cold-start voice enrolment. For each KB meeting with exactly 2
+# calendar attendees (Eoin + X), if X isn't yet in voice_catalog.json AND the
+# corresponding recording has exactly 2 SPEAKER clusters with one matching
+# Eoin, enrol X using the unmatched embedding. Runs Ubuntu-side because that's
+# where the embeddings + catalog live (KB was just rsynced over above).
+# Sibling to identify_speakers.py's auto_enrol() which only extends already-
+# known voices. Idempotent — safe to run every night.
+echo "$(date): Running cold-start voice enrolment..." >> "$LOG"
+ssh -o StrictHostKeyChecking=no "$UBUNTU" \
+    "source ~/whisper-env/bin/activate && python3 ~/auto_enrol_1on1.py" >> "$LOG" 2>&1 || \
+    echo "$(date): auto_enrol_1on1 skipped/failed (non-fatal)" >> "$LOG"
 
 # Step 5: Refresh memory symlinks across project folders. Auto-discovers any
 # new folder under ~/Documents containing a CLAUDE.md and re-creates per-file
