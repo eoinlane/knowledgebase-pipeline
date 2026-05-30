@@ -88,6 +88,29 @@ def patch_meeting_file(path, meeting_correction, people_corrections):
             fm["people"] = [", ".join(corrected)]
             changed = True
 
+    # Attendees drop: explicitly remove invited-but-absent attendees (and people
+    # who've left a project) without touching the body. Calendar invites
+    # frequently outlive actual attendance — recurring meetings keep old names
+    # on the invite list long after someone has left. This is the durable
+    # override path: list names here and they get stripped from
+    # `attendees`, `mentioned`, and `people` frontmatter on every rebuild.
+    # Distinct from people_corrections (renames) — drop is a hard remove.
+    drop_names = set(meeting_correction.get("attendees_drop", []))
+    if drop_names:
+        for field in ("attendees", "mentioned", "people"):
+            if field not in fm:
+                continue
+            raw = fm[field]
+            # Flatten (handles ["A,B,C"] and ["A","B","C"] forms)
+            flat = []
+            for entry in raw:
+                if isinstance(entry, str):
+                    flat.extend([n.strip() for n in entry.split(",")])
+            kept = [n for n in flat if n and n not in drop_names]
+            if kept != flat:
+                fm[field] = [", ".join(kept)] if kept else []
+                changed = True
+
     # Body-level people_corrections — applied even when frontmatter is
     # already correct, since action items, decisions, and transcript labels
     # also reference the names. Track whether the body actually changed so
