@@ -34,8 +34,9 @@ python3 ~/knowledgebase-pipeline/mac/build_graph.py
 python3 ~/query_graph.py prep "Pat Nestor" -p DCC       # pre-meeting briefing
 python3 ~/query_graph.py review                         # weekly digest
 python3 ~/query_graph.py review --weeks 2               # last 2 weeks
-python3 ~/query_graph.py synthesise "Pat Nestor"        # progressive summary (person)
-python3 ~/query_graph.py synthesise --project NTA       # progressive summary (project)
+python3 ~/query_graph.py synthesise "Pat Nestor"        # progressive summary (person, Opus 4.7 default)
+python3 ~/query_graph.py synthesise "Pat Nestor" --fast # use Haiku (~20× cheaper, faster, shallower)
+python3 ~/query_graph.py synthesise --project NTA       # progressive summary (project, Opus 4.7 default)
 python3 ~/query_graph.py open --project DCC             # open action items
 python3 ~/query_graph.py open --person "Pat Nestor"     # items for a person
 python3 ~/query_graph.py done 42                        # close item by ID
@@ -53,6 +54,7 @@ python3 ~/query_graph.py open --project NTA --by-date   # legacy date-desc order
 **Daily morning brief (added 2026-05-22, email added 2026-05-23):**
 - `query_graph.py brief` runs the day's brief: today's calendar meetings with per-attendee last open commitment, Eoin's open items from last 2 weeks, items closed in the last 24h, and 2–4 week-old items owed to Eoin. Calendar attendees are cleaned (drops PS4/HR/All-in-NTA/To:X noise, titlecases email-prefix names). Personal + Home calendars excluded at source.
 - Launchd agent `com.eoin.morning-brief` fires at 06:30 daily. Writes `~/morning_brief.md` (stable path) + `~/knowledge_base/_briefs/YYYY-MM-DD.md` (archive) + emails to `eoinlane@gmail.com` via Gmail SMTP (app password in macOS keychain, service `morning-brief-smtp`). Sender at `mac/morning_brief_emailer.py` (reusable, takes `--file` + `--subject`).
+- **Coverage sections (added 2026-05-30):** brief now also surfaces (a) stuck 0-byte Apple Notes recordings from `~/.local/share/kb/stuck_recordings.txt` (populated by the `sync-notes-audio` escape hatch when an iCloud placeholder sits at 0 bytes for >24h) and (b) calendar events in the last 7 days with no matching transcript within ±90 min (catches Stage A failures: iPhone export shortcut didn't fire, recording forgotten, etc.). Both sections only render when there are entries; brief stays clean when nothing's wrong.
 
 **Weekly stale-commitment nudge (added 2026-05-24):**
 - `query_graph.py stale-nudge` surfaces Eoin-owned open commitments older than 3 weeks. Top 3 per project, hard cap 15. Companion to the daily brief — catches things you've quietly dropped.
@@ -123,11 +125,11 @@ Makefile         — deploy-ubuntu, deploy-mac, test, clean-ubuntu
 
 ### Mac vs Ubuntu Split
 
-Scripts in **`ubuntu/`** (GPU required): `transcribe_single.py`, `classify_transcript.py`, `identify_speakers.py`, `reclassify_by_speaker.py`, `extract_meeting_insights.py`, `batch_identify_speakers.py`, `review_speakers.py`, `watch-and-transcribe.sh`, `watchdog-transcribe.sh`.
+Scripts in **`ubuntu/`** (GPU required): `transcribe_single.py`, `classify_transcript.py`, `identify_speakers.py`, `reclassify_by_speaker.py`, `extract_meeting_insights.py`, `batch_identify_speakers.py`, `review_speakers.py`, `watch-and-transcribe.sh`, `watchdog-transcribe.sh`, `process_audio.sh` (reusable single-file pipeline runner with honest DONE/FAILED markers — replaces ad-hoc `/tmp/process_*.sh` one-liners), `auto_enrol_1on1.py` (cold-start voice catalog enrolment).
 
 Scripts in **`mac/`**: `build_knowledge_base.py`, `build_contacts_db.py`, `build_graph.py`, `query_graph.py`, `contacts_viewer.py`, `apply_kb_corrections.py`, `process_inbox.py`, `upload_knowledge_base_incremental.py`.
 
-**`shared/config.py`** has OLLAMA_URL, MODEL, PERSON_CATEGORY (person→category mapping), KEEP_CATEGORIES, `WHISPER_INITIAL_PROMPT` (decoder name-biasing), `HAIKU_MODEL`/`SONNET_MODEL`/`LITELLM_URL[_REMOTE]` (pinned Anthropic via LiteLLM), `OLLAMA_MODEL_DIGEST_EXPECTED` (qwen2.5:14b sha256 for drift detection). **`shared/name_expansions.py`** has WhisperX mishearing→full name tables per category. **`shared/prompts.py`** owns `CLASSIFY_SYSTEM_PROMPT` (single source of truth — imported by both `ubuntu/classify_transcript.py` and `tools/benchmark_models.py`). All `shared/*` modules imported by Ubuntu and Mac scripts with fallback to hardcoded values.
+**`shared/config.py`** has OLLAMA_URL, MODEL, PERSON_CATEGORY (person→category mapping), KEEP_CATEGORIES, `WHISPER_INITIAL_PROMPT` (decoder name-biasing), `HAIKU_MODEL` / `SONNET_MODEL` / `OPUS_MODEL` (added 2026-05-30 — `claude-opus-4-7`) / `LITELLM_URL[_REMOTE]` (Anthropic via LiteLLM proxy), `OLLAMA_MODEL_DIGEST_EXPECTED` (qwen2.5:14b sha256 for drift detection). **`shared/name_expansions.py`** has WhisperX mishearing→full name tables per category. **`shared/prompts.py`** owns `CLASSIFY_SYSTEM_PROMPT` (single source of truth — imported by both `ubuntu/classify_transcript.py` and `tools/benchmark_models.py`). All `shared/*` modules imported by Ubuntu and Mac scripts with fallback to hardcoded values.
 
 ### Data Flow
 
@@ -176,6 +178,8 @@ Calendar export at `~/.local/bin/export-calendars.sh` writes to `~/.local/share/
 
 - **Eoin Lane variants** (always the recorder): `Owen Lane`, `Eoghan Lane`, `Owen Layne` → `Eoin Lane`. Strips parenthetical clarifications first ("Owen Lane (Eoin)" → "Owen Lane" → "Eoin Lane").
 - **Cathal Bellew variants** (only in NTA category): `Cathal`, `Cahal`, `Cathal Murphy`, `Carla`, `Cahill`, `Cottle`, `Karl Bellew(s)` → `Cathal Bellew`.
+- **Aidan Blighe variants** (DCC category, added 2026-05-30): `aidan bly`, `aidan blie`, `aiden bly`, `aiden blighe` → `Aidan Blighe`. He chairs the DCC AI Governance Group; LLM kept producing `Aidan Bly?`.
+- **Two-Shakespeares guard** (added 2026-05-30): `name_expansions.py` has a `# WARNING:` comment forbidding any `richard shakespeare` → `Richie Shakespeare` mapping. There are two Shakespeares at DCC — Richard (Chief Executive, father) and Richie (GenAI Lab member, son). Collapsing them silently re-attributes CE-level directives to a Lab member. See `memory/feedback_two_shakespeares.md`.
 - LLM prompts in `classify_transcript.py` and `identify_speakers.py` enforce the same normalisation upstream.
 
 ### Orphan KB File Cleanup
@@ -188,10 +192,22 @@ When a meeting's category or topic changes between builds, the new file lands at
 ```json
 {
   "people": { "RawName": { "name": "Full Name", "title": "...", "org": "..." } },
-  "meetings": { "filename.md": { "topic": "...", "tags": [...], "people_corrections": {} } }
+  "meetings": {
+    "filename.md": {
+      "topic": "...",
+      "tags": [...],
+      "people_corrections": { "Old Name": "New Name" },
+      "attendees_drop": ["Khizer Ahmed Biyabani", "Yang Su"]
+    }
+  }
 }
 ```
 `apply_kb_corrections.py` patches KB markdown files after each build. `contacts_viewer.py` writes to this file when you edit names/orgs/topics in the UI. Changes propagate on the next rebuild.
+
+**Three field types per meeting:**
+- `people_corrections` — rename map; renames in both frontmatter `people` and body text.
+- `attendees_drop` (added 2026-05-30) — list of names to strip from `attendees` / `mentioned` / `people` frontmatter without touching body. Use when an invitee didn't actually attend, or when someone has left a project but stays on recurring calendar invites (e.g. Yang Su leaving the GenAI Lab). Distinct from `people_corrections`: drop is a hard remove, applied per-meeting.
+- `topic` / `tags` — straightforward frontmatter overrides.
 
 ### Contacts DB Schema
 
@@ -220,6 +236,8 @@ dismissed_pairs (name1, name2)
 
 **Apple Notes recordings** (UUID-named `.m4a`) come from a separate path: when you record into an Apple Note, an iPhone Shortcut (or equivalent automation) drops the audio into iCloud Drive at `~/Library/Mobile Documents/com~apple~CloudDocs/My Notes Audio/`. The Mac launchd `com.eoin.sync-notes-audio` (`mac/launchd/sync-notes-audio.sh`) runs every 5 min, copies new files to `/tmp/notes-audio-sync/` to avoid iCloud `EDEADLK` mmap locks, then rsyncs to Ubuntu's `~/audio-inbox/Notes/`. Any new `.m4a` there fires the inotify watcher. **Apple Notes ≠ iCloud Drive** — recordings live in the Notes data store until something exports them; if the audio shows in the Notes app but doesn't reach `My Notes Audio/`, the export step hasn't fired yet.
 
+**Stuck-orphan escape hatch (added 2026-05-30):** the sync agent's size-stability check used to silently re-skip 0-byte iCloud placeholders forever (caught 2026-05-27 by the 597B492C orphan that had been stuck since 24 May). The agent now distinguishes "still syncing" from "stuck": if a file has been 0 bytes for `STUCK_AGE_SECS` (24h), it logs a `STUCK` line and appends to `~/.local/share/kb/stuck_recordings.txt` (atomically rewritten each run). The morning brief surfaces this list at 06:30 so the orphan is visible within hours instead of days.
+
 ### Knowledge Graph (graph.db)
 
 `build_graph.py` runs after `build_contacts_db.py`. Reads KB frontmatter + insights JSONs (`/tmp/kb_insights/`), outputs `~/graph.db` (SQLite). `query_graph.py` is the CLI query tool.
@@ -238,7 +256,7 @@ dismissed_pairs (name1, name2)
 
 **Action item lifecycle:** Items older than 8 weeks are auto-marked `stale` during rebuild. Manual closures via `done` command are persisted to `~/.graph_closures.json` (keyed by `meeting_filename::text_prefix`) and survive rebuilds.
 
-**Progressive summarisation:** `synthesise` command calls Claude Haiku via LiteLLM to produce trajectory narratives per person/project from meeting summaries, action items, and decisions. Stored in `syntheses` table (preserved across rebuilds). On re-run, previous synthesis is included as context for progressive compression.
+**Progressive summarisation:** `synthesise` command calls **Claude Opus 4.7** (default since 2026-05-30) via LiteLLM to produce trajectory narratives per person/project from meeting summaries, action items, and decisions. Use `--fast` to drop to Claude Haiku for ~20× cheaper / ~2× faster but shallower output — appropriate for routine iteration; Opus is appropriate when the deeper read is wanted. Per-synthesis model recorded in the `syntheses` row. `call_haiku()` (name kept for backwards compat) takes optional `model=` and drops `temperature` for Opus-family models (Opus 4.7 deprecated it). Stored in `syntheses` table (preserved across rebuilds). On re-run, previous synthesis is included as context for progressive compression.
 
 **Weekly review:** `review` command shows meetings by project, your commitments, others' commitments, decisions made, overdue items (2-8 weeks), and people gone quiet (3+ weeks). The `com.eoin.weekly-review` launchd agent runs this every Monday 07:00 with `--weeks 2` (covers the week that just ended) and writes to `~/knowledge_base/_reviews/YYYY-Wnn.md`.
 
@@ -280,7 +298,11 @@ The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"`
 
 ### Voice Catalog (Ubuntu ~/voice_catalog.json)
 
-29 people enrolled (as of 2026-04-28) via 2-speaker call elimination (Eoin as anchor), calendar matching, and transcript name extraction. Grows automatically as new recordings are processed and confirmed. `reclassify_by_speaker.py` uses `shared/config.py:PERSON_CATEGORY` to override LLM categories based on who's speaking.
+49 people enrolled (as of 2026-06-01) via 2-speaker call elimination (Eoin as anchor), calendar matching, transcript name extraction, and the cold-start auto-enrol script (see below). Grows automatically as new recordings are processed and confirmed. `reclassify_by_speaker.py` uses `shared/config.py:PERSON_CATEGORY` to override LLM categories based on who's speaking.
+
+**Auto-enrolment is two-tier:**
+1. **`identify_speakers.py:auto_enrol()`** — extends existing catalog entries: appends the recording's embedding when a voice matches a known person with ≥0.92 similarity. Compounds reliability over time. Runs inline at speaker_id step.
+2. **`auto_enrol_1on1.py`** (added 2026-05-30, Ubuntu) — **cold-start**: enrols brand-new people from 1-on-1 calls. For each KB meeting with exactly 2 calendar attendees (Eoin + X) where X isn't yet in the catalog AND the recording has exactly 2 SPEAKER clusters AND one matches Eoin (≥0.65) AND the other has no existing catalog match (<0.55), enrol the unmatched embedding as X. Conservative gating prevents stealing voices that are already in the catalog under a different name. Wired into `mac/launchd/rebuild-knowledge-base.sh` as **Step 4** (after KB rsync to Ubuntu, before memory-symlinks refresh). First run picked up 6 historic 1-on-1s the pipeline had been missing.
 
 **Resilience:** all writes to `voice_catalog.json` and `speaker_mappings.json` go through `shared.atomic_io.atomic_write_json` (write-to-temp + fsync + rename) — eliminates the torn-write / 0-byte file failure mode that would otherwise destroy the catalog if a process gets killed mid-write. Nightly backup launchd `com.eoin.backup-voice-state` rsyncs both files plus `speaker_registry.json` to `~/.local/share/kb/backups/voice/YYYY-MM-DD/` on the Mac (30-day rotation, sanity-checks the catalog parses + has ≥5 people before pruning).
 
@@ -291,7 +313,7 @@ The name expansion table is in `shared/name_expansions.py` (e.g. DCC: `"kizzer"`
 | Component | Details |
 |---|---|
 | Ubuntu | `eoin@nvidiaubuntubox`, Tailscale `100.121.184.27`, SSH key auth, password `el`. MagicDNS is off tailnet-wide (preserves AdGuard filtering); the Mac resolves the hostname via `~/.ssh/config` alias to the Tailscale IP |
-| LiteLLM proxy | Ubuntu port 4000, models: `claude-sonnet-4-6`, `claude-haiku-4-5` (pinned to `claude-haiku-4-5-20251001` in `/home/eoin/litellm-config.yaml`). User `eoin` has `loginctl enable-linger` set since 2026-05-24 — without it, the user-systemd manager died when the last SSH session disconnected and took litellm with it. |
+| LiteLLM proxy | Ubuntu port 4000, models: `claude-sonnet-4-6`, `claude-haiku-4-5` (pinned to `claude-haiku-4-5-20251001` in `/home/eoin/litellm-config.yaml`), `claude-opus-4-7` (added 2026-05-30). Anthropic API key refactored 2026-05-30: now lives in `/home/eoin/.litellm.env` (mode 600) referenced via `EnvironmentFile` in `~/.config/systemd/user/litellm.service` and consumed as `api_key: os.environ/ANTHROPIC_API_KEY` in each model entry (was hardcoded twice in plaintext). Mac mirror: `security find-generic-password -s anthropic-api-key -a eoin -w`. User `eoin` has `loginctl enable-linger` set since 2026-05-24 — without it, the user-systemd manager died when the last SSH session disconnected and took litellm with it. |
 | ollama-box | `192.168.0.70:11434`, Debian 13 bhyve VM on FreeBSD (192.168.0.14), RTX 4060 8GB, `qwen2.5:14b` (~8 tok/s, ~13s/classification). Start VM: `ssh eoin@192.168.0.14 "echo el \| sudo -S vm start ollama-box"` |
 | WhisperX | Ubuntu RTX 5060 Ti 16GB, model `large-v3`, CUDA float16. `watch-and-transcribe.sh` handles new files via inotify; `watchdog-transcribe.sh` runs every 30 min via systemd timer to catch misses and retry failed classifications |
 | WhisperX env | Ubuntu `~/whisper-env/` — always activate before running transcription scripts |
