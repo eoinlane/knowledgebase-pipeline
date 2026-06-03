@@ -17,6 +17,16 @@ CATEGORY_NAME_EXPANSIONS = {
         "kizer": "Khizer Ahmed Biyabani",
         "kaiser": "Khizer Ahmed Biyabani",
         "richie": "Richie Shakespeare",
+        "aidan bly": "Aidan Blighe",
+        "aidan blie": "Aidan Blighe",
+        "aiden bly": "Aidan Blighe",
+        "aiden blighe": "Aidan Blighe",
+        # WARNING: do NOT add "richard shakespeare" → "Richie Shakespeare".
+        # There are two Shakespeares at DCC: Richard (CE, father) and Richie
+        # (GenAI Lab member, son, richardm.shakespeare@dublincity.ie). When a
+        # transcript says "Richard Shakespeare" it usually means the CE.
+        # Mapping it to Richie would silently mis-attribute CE-level
+        # directives to a Lab member. See feedback_two_shakespeares.md.
         "stephen": "Stephen Rigney",
         "eoin swift": "Eoin Swift",
         "swift": "Eoin Swift",
