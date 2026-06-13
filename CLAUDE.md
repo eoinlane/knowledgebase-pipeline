@@ -66,6 +66,13 @@ python3 ~/query_graph.py open --project NTA --by-date   # legacy date-desc order
 - Auth = same keychain entry (`morning-brief-smtp`/`eoinlane@gmail.com`) — Gmail app passwords cover both SMTP and IMAP. Auth boundary is the `FROM eoinlane@gmail.com` filter; Gmail's DMARC stops same-domain spoofs.
 - Closes the open-loop problem: pre-2026-06-14, only 1 of 5,712 action items had ever been explicitly closed (87% auto-marked stale). The brief is now the queue, the inbox is the close button.
 
+**Weekly synthesis (added 2026-06-14):**
+- `mac/launchd/weekly-synthesis.sh` loops 7 active client projects (NTA, DCC, Diotima, Paradigm, ADAPT, TBS, LCC) running `query_graph.py synthesise --project X` and concatenates the per-project narratives into one markdown doc. Drops the H1 to H2 per project so the email has a single top-level title. Skipped sections render as placeholders when synthesis fails.
+- Launchd agent `com.eoin.weekly-synthesis` fires Sunday 18:00 IST, ahead of Monday 07:00 weekly-review. Output: `~/weekly_synthesis.md` (stable) + `~/knowledge_base/_syntheses/YYYY-MM-DD.md` (archive) + email via the same Gmail SMTP path as the morning brief.
+- Opus 4.7 default. Cost ~7 × ~$0.15 ≈ ~$1/week. Synthesise stores each run in the `syntheses` table (entity_type=project, entity_id, model, created_at); the next run uses the previous synthesis as context for progressive compression.
+- **Case sensitivity (2026-06-14 fix):** synthesise used to force `args.project.upper()`, which silently returned "No meetings found" for `Diotima`/`Paradigm` (stored CamelCase in graph_edges, unlike `NTA`/`DCC`/`ADAPT`/`TBS`/`LCC`). Now resolves to the actual stored casing via a `LOWER(to_id) = LOWER(?)` lookup before querying, and the downstream `entity_id.upper()` comparisons treat both sides case-insensitively so action items / decisions match.
+- **Opus timeout (2026-06-14 fix):** `call_haiku` HTTP timeout bumped from 120s → 240s for Opus calls only. ADAPT (~225 historic items + progressive context) consistently exceeded 120s in the first weekly run. Haiku stays at 120s.
+
 **Weekly benchmark + regression alert (added 2026-05-24):**
 - `mac/launchd/weekly-benchmark.sh` runs `tools/benchmark_models.py` against the 8-transcript curated suite for `qwen2.5:14b` (Ollama, classify primary) and `claude-haiku-4-5` (LiteLLM, insights primary), then diffs vs the previous run for each model.
 - Launchd agent `com.eoin.weekly-benchmark` fires Sunday 02:00 IST (before 04:00 nightly rebuild). Regression rules: exact-accuracy drops OR avg wall +25%. On regression: emails `~/weekly_benchmark_report.md`. Silent on clean.

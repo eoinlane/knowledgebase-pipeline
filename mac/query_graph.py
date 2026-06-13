@@ -739,7 +739,9 @@ def call_haiku(system_prompt, user_prompt, model=None):
     compatibility — earlier callers always used Haiku. Pass `model=` to override
     (e.g. OPUS_MODEL for synthesis). Opus 4.7 dropped support for `temperature`,
     so we skip it for Opus-family models and keep deterministic-output behaviour
-    for everything else."""
+    for everything else. Opus synthesis on ~200+ historic items can exceed
+    120s; give it 240s so ADAPT-sized projects don't time out (caught
+    2026-06-14 in the first weekly run)."""
     chosen = model or LITELLM_MODEL
     body = {
         "model": chosen,
@@ -750,12 +752,13 @@ def call_haiku(system_prompt, user_prompt, model=None):
     }
     if "opus" not in chosen.lower():
         body["temperature"] = 0
+    timeout = 240 if "opus" in chosen.lower() else 120
     payload = json.dumps(body).encode()
     req = urllib.request.Request(
         LITELLM_URL, data=payload,
         headers={"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         result = json.loads(resp.read())
     return result["choices"][0]["message"]["content"].strip()
 
@@ -770,7 +773,17 @@ def cmd_synthesise(args):
 
     if args.project:
         entity_type = "project"
-        entity_id = args.project.upper()
+        # Project categories are stored with mixed casing in graph_edges
+        # (e.g. 'Diotima', 'Paradigm' vs 'NTA', 'DCC'). Resolve the user
+        # input to the actual stored casing — falling back to .upper() if
+        # nothing matches. Pre-2026-06-14 this force-uppercased and silently
+        # returned "No meetings found" for Diotima/Paradigm/ADAPT.
+        match = conn.execute(
+            "SELECT to_id FROM graph_edges WHERE to_type='category' "
+            "AND LOWER(to_id) = LOWER(?) LIMIT 1",
+            (args.project,),
+        ).fetchone()
+        entity_id = match["to_id"] if match else args.project.upper()
         label = entity_id
     else:
         entity_type = "person"
@@ -843,14 +856,14 @@ def cmd_synthesise(args):
             SELECT meeting_filename, text, owner, status, project FROM action_items
             WHERE status = 'open' ORDER BY meeting_filename DESC
         """).fetchall()
-        actions = [a for a in all_actions if (a["project"] or meeting_category(a["meeting_filename"])).upper() == entity_id][:20]
+        actions = [a for a in all_actions if (a["project"] or meeting_category(a["meeting_filename"])).upper() == entity_id.upper()][:20]
 
     # Decisions
     all_decisions = conn.execute("SELECT meeting_filename, text, project FROM decisions ORDER BY meeting_filename DESC").fetchall()
     if entity_type == "person":
         decisions = [d for d in all_decisions if d["meeting_filename"] in meeting_fns][:15]
     else:
-        decisions = [d for d in all_decisions if (d["project"] or meeting_category(d["meeting_filename"])).upper() == entity_id][:15]
+        decisions = [d for d in all_decisions if (d["project"] or meeting_category(d["meeting_filename"])).upper() == entity_id.upper()][:15]
 
     # Documents
     if entity_type == "person":
