@@ -16,11 +16,21 @@ Run manually:
 
 import argparse
 import datetime as dt
+import re
 import smtplib
 import subprocess
 import sys
 from email.message import EmailMessage
 from pathlib import Path
+
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+
+def _convert_links(s: str) -> str:
+    """[label](url) → <a href="url">label</a>. Brief uses this for close
+    links; markdown attribute syntax is otherwise unused in the brief, so a
+    naive regex is fine."""
+    return _LINK_RE.sub(r'<a href="\2">\1</a>', s)
 
 BRIEF_PATH_DEFAULT = Path.home() / "morning_brief.md"
 SUBJECT_DEFAULT = "Morning Brief"
@@ -72,6 +82,7 @@ def markdown_to_html(md: str) -> str:
             # bold conversion
             while "**" in item:
                 item = item.replace("**", "<strong>", 1).replace("**", "</strong>", 1)
+            item = _convert_links(item)
             out.append(f"<li>{item}</li>")
         elif line == "---":
             if in_list:
@@ -80,7 +91,7 @@ def markdown_to_html(md: str) -> str:
         else:
             if in_list:
                 out.append("</ul>"); in_list = False
-            out.append(f"<p>{line}</p>")
+            out.append(f"<p>{_convert_links(line)}</p>")
     if in_list:
         out.append("</ul>")
     return "\n".join(out)

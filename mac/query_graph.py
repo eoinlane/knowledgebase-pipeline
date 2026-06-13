@@ -475,6 +475,17 @@ def meeting_title(filename):
     return filename
 
 
+# Close-by-email link. Tapping in the morning brief opens a pre-filled
+# mailto: with subject "close <id>"; process_close_replies.py picks it up
+# via IMAP and runs `query_graph.py done <id>`. Gmail subaddressing
+# (`+kbclose`) lets a filter route these without changing the inbox address.
+_CLOSE_RECIPIENT = "eoinlane+kbclose@gmail.com"
+
+
+def _close_link(item_id):
+    return f"[close](mailto:{_CLOSE_RECIPIENT}?subject=close%20{item_id})"
+
+
 def cmd_prep(args):
     if not args.name:
         print("Usage: query_graph.py prep \"Person Name\" [--project X]", file=sys.stderr)
@@ -1572,7 +1583,7 @@ def cmd_brief(args):
         print()
 
     your_items = conn.execute("""
-        SELECT meeting_filename, text FROM action_items
+        SELECT id, meeting_filename, text FROM action_items
         WHERE status = 'open'
           AND LOWER(owner) LIKE '%eoin%'
           AND meeting_filename >= ?
@@ -1582,11 +1593,11 @@ def cmd_brief(args):
     if your_items:
         print(f"## Your open commitments (last 2 weeks, {len(your_items)} shown)")
         print()
-        for fn, text in your_items:
+        for item_id, fn, text in your_items:
             cat = meeting_category(fn)
             if len(text) > 180:
                 text = text[:180].rstrip() + "…"
-            print(f"- [{meeting_date(fn)} {cat}] {text}")
+            print(f"- [{meeting_date(fn)} {cat}] {text} · {_close_link(item_id)}")
         print()
 
     others = conn.execute("""
@@ -1623,7 +1634,7 @@ def cmd_stale_nudge(args):
     cutoff = (today - _dt.timedelta(weeks=weeks)).isoformat()
     conn = get_conn(GRAPH_DB)
     rows = conn.execute("""
-        SELECT meeting_filename, text FROM action_items
+        SELECT id, meeting_filename, text FROM action_items
         WHERE status = 'open'
           AND LOWER(owner) LIKE '%eoin%'
           AND meeting_filename < ?
@@ -1639,15 +1650,15 @@ def cmd_stale_nudge(args):
         return
 
     by_proj = {}
-    for fn, text in rows:
+    for item_id, fn, text in rows:
         cat = meeting_category(fn)
-        by_proj.setdefault(cat, []).append((fn, text))
+        by_proj.setdefault(cat, []).append((item_id, fn, text))
 
     total_stale = len(rows)
     print(f"_{total_stale} of your open items are older than {weeks} weeks. "
           f"Showing top {per_project} per project (cap {cap})._")
     print()
-    print("For each: **do it**, **close it** (`query_graph.py done \"<text fragment>\"`), or explicitly defer.")
+    print("For each: **do it**, tap **close** beside the item, or explicitly defer.")
     print()
 
     shown_total = 0
@@ -1657,7 +1668,7 @@ def cmd_stale_nudge(args):
         items = by_proj[proj][:per_project]
         print(f"## {proj} ({len(by_proj[proj])} stale total)")
         print()
-        for fn, text in items:
+        for item_id, fn, text in items:
             if shown_total >= cap:
                 break
             date_s = meeting_date(fn)
@@ -1668,7 +1679,7 @@ def cmd_stale_nudge(args):
                 age_str = "?"
             if len(text) > 200:
                 text = text[:200].rstrip() + "…"
-            print(f"- [{date_s} · {age_str}] {text}")
+            print(f"- [{date_s} · {age_str}] {text} · {_close_link(item_id)}")
             shown_total += 1
         print()
 

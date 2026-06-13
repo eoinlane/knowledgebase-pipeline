@@ -60,6 +60,12 @@ python3 ~/query_graph.py open --project NTA --by-date   # legacy date-desc order
 - `query_graph.py stale-nudge` surfaces Eoin-owned open commitments older than 3 weeks. Top 3 per project, hard cap 15. Companion to the daily brief — catches things you've quietly dropped.
 - Launchd agent `com.eoin.stale-nudge` fires Friday 06:30. Output: `~/stale_nudge.md` (stable) + `~/knowledge_base/_nudges/YYYY-MM-DD.md` (archive) + email via the same sender as the morning brief.
 
+**Close-by-email (added 2026-06-14):**
+- Both the daily brief and Friday stale-nudge now render `· [close](mailto:eoinlane+kbclose@gmail.com?subject=close <id>)` beside each Eoin-owned open item. Tapping fires a mailto: with the item id baked into the subject.
+- `mac/process_close_replies.py` polls Gmail IMAP every 15 min via launchd `com.eoin.process-close-replies`, fetches `UNSEEN FROM eoinlane@gmail.com SUBJECT close`, parses `close <id>` from the subject, shells out to `query_graph.py done <id>` (idempotent if already closed), and marks SEEN. Cap 50 per run as a runaway guard.
+- Auth = same keychain entry (`morning-brief-smtp`/`eoinlane@gmail.com`) — Gmail app passwords cover both SMTP and IMAP. Auth boundary is the `FROM eoinlane@gmail.com` filter; Gmail's DMARC stops same-domain spoofs.
+- Closes the open-loop problem: pre-2026-06-14, only 1 of 5,712 action items had ever been explicitly closed (87% auto-marked stale). The brief is now the queue, the inbox is the close button.
+
 **Weekly benchmark + regression alert (added 2026-05-24):**
 - `mac/launchd/weekly-benchmark.sh` runs `tools/benchmark_models.py` against the 8-transcript curated suite for `qwen2.5:14b` (Ollama, classify primary) and `claude-haiku-4-5` (LiteLLM, insights primary), then diffs vs the previous run for each model.
 - Launchd agent `com.eoin.weekly-benchmark` fires Sunday 02:00 IST (before 04:00 nightly rebuild). Regression rules: exact-accuracy drops OR avg wall +25%. On regression: emails `~/weekly_benchmark_report.md`. Silent on clean.
