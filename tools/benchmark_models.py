@@ -72,16 +72,36 @@ Rules:
 
 
 def fetch_transcripts():
-    """Fetch benchmark transcripts from Ubuntu, cache locally."""
+    """Fetch benchmark transcripts from Ubuntu, cache locally.
+
+    Fail-fast: if any scp fails, raise. Earlier versions only printed WARN and
+    continued, producing empty result JSONs that the weekly-benchmark diff
+    then treated as 'accuracy went from 7/8 to 0/1' — a false-positive
+    regression alert. Better to abort the run and not write anything than to
+    pollute the historical baseline (caught 2026-06-13).
+
+    Timeout bumped 30s → 120s. The 30s was margin-of-error on off-network
+    Mac (hotel WiFi, etc.) which is exactly when the 7 June failure hit."""
     os.makedirs(TRANSCRIPT_CACHE, exist_ok=True)
+    failures = []
     for item in BENCHMARK_SET:
         local = os.path.join(TRANSCRIPT_CACHE, item["uuid"] + ".txt")
         if os.path.exists(local) and os.path.getsize(local) > 0:
             continue
         remote = f"{UBUNTU_HOST}:~/audio-inbox/Transcriptions/{item['uuid']}.txt"
-        r = subprocess.run(["scp", remote, local], capture_output=True, timeout=30)
+        try:
+            r = subprocess.run(["scp", remote, local], capture_output=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            failures.append(f"{item['uuid']}: scp timeout after 120s")
+            continue
         if r.returncode != 0:
-            print(f"  WARN: could not fetch {item['uuid']}: {r.stderr.decode()[:80]}")
+            failures.append(f"{item['uuid']}: {r.stderr.decode()[:120].strip()}")
+    if failures:
+        raise RuntimeError(
+            f"Transcript fetch failed for {len(failures)} item(s) — aborting "
+            "benchmark (would otherwise write empty results and trigger a "
+            "phantom regression alert):\n  " + "\n  ".join(failures)
+        )
 
 
 def read_transcript(uuid):
