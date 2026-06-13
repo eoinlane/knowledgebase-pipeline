@@ -27,6 +27,7 @@ deploy-mac: ## Symlink Mac scripts to ~/
 	ln -sf $(PWD)/mac/upload_knowledge_base_incremental.py ~/upload_knowledge_base_incremental.py
 	ln -sf $(PWD)/mac/process_inbox.py ~/process_inbox.py
 	ln -sf $(PWD)/mac/process_close_replies.py ~/process_close_replies.py
+	ln -sf $(PWD)/mac/auto_apply_verdicts.py ~/auto_apply_verdicts.py
 	@for f in mac/launchd/*.sh; do ln -sf $(PWD)/$$f ~/.local/bin/$$(basename $$f); done
 	@echo "Mac scripts symlinked"
 

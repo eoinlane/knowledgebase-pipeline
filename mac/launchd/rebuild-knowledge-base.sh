@@ -55,6 +55,16 @@ echo "$(date): Running entity_resolver_agent (limit 200)..." >> "$LOG"
 /usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/entity_resolver_agent.py --limit 200 >> "$LOG" 2>&1 || \
     echo "$(date): entity_resolver_agent skipped/failed (continuing)" >> "$LOG"
 
+# Step 2d: Auto-apply high-confidence LLM verdicts. Drains the merge_
+# suggestions backlog overnight without waiting on /review (the human review
+# step that wasn't happening). Conservative safety guards in the script —
+# only unambiguous patterns auto-merge (email-prefix dedupe, SPEAKER
+# labels, close spelling variants). Distinct-verdict dismissals at
+# confidence >= 0.9 are inherently safe.
+echo "$(date): Running auto_apply_verdicts..." >> "$LOG"
+/usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/auto_apply_verdicts.py --apply >> "$LOG" 2>&1 || \
+    echo "$(date): auto_apply_verdicts skipped/failed (continuing)" >> "$LOG"
+
 echo "$(date): Building graph..." >> "$LOG"
 /usr/local/bin/python3 /Users/eoin/knowledgebase-pipeline/mac/build_graph.py >> "$LOG" 2>&1
 
