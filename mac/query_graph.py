@@ -1322,6 +1322,38 @@ def _recording_minutes_for_date(d):
     return mins
 
 
+def _meetings_with_weak_match(days_back=7):
+    """Scan last `days_back` days of KB meetings for ones where the matcher
+    didn't trust its candidate (match_trusted: false) or found none
+    (attendees_source: "none"). Reads frontmatter directly so we get the
+    raw audit fields including the rejected event title."""
+    import os, glob, re as _re
+    today = _dt.date.today()
+    cutoff = (today - _dt.timedelta(days=days_back)).isoformat()
+    kb = os.path.expanduser("~/knowledge_base/meetings")
+    hits = []
+    for path in sorted(glob.glob(os.path.join(kb, "*.md")), reverse=True):
+        fn = os.path.basename(path)
+        date_s = meeting_date(fn)
+        if not date_s or date_s < cutoff or date_s >= today.isoformat():
+            continue
+        try:
+            with open(path) as f:
+                head = f.read(2000)  # frontmatter is small; cap to avoid full reads
+        except OSError:
+            continue
+        rejected = bool(_re.search(r"^match_trusted:\s*false", head, _re.M))
+        no_match = bool(_re.search(r'^attendees_source:\s*"none"', head, _re.M))
+        if not (rejected or no_match):
+            continue
+        title_m = _re.search(r'^title:\s*"(.+)"', head, _re.M)
+        evt_m = _re.search(r'^matched_event:\s*"(.+)"', head, _re.M)
+        hits.append((date_s, title_m.group(1) if title_m else fn,
+                     fn, evt_m.group(1) if (rejected and evt_m) else None,
+                     "no-match" if no_match else "rejected"))
+    return hits
+
+
 def _meetings_without_recordings(days_back=7, window_minutes=90):
     """For the last `days_back` days (excluding today), find calendar events with
     no matching KB recording within ±window_minutes of their start time. Catches
@@ -1545,6 +1577,27 @@ def cmd_brief(args):
                 print()
     except OSError:
         pass
+
+    # Weak / no calendar match in the last 7 days. Surfaces meetings where
+    # the matcher either rejected its best candidate (match_trusted: false,
+    # added 2026-06-14) or never found a candidate at all (attendees_source:
+    # "none"). These are the meetings whose attendees came from the LLM's
+    # key_people field instead of a confident calendar match — worth a
+    # human eyeball before they ossify into the people graph.
+    weak = _meetings_with_weak_match(days_back=7)
+    if weak:
+        print(f"## ⚠ Meetings with weak/no calendar match (last 7 days, {len(weak)})")
+        print()
+        print("_Attendees came from LLM key_people, not calendar. The matcher "
+              "either rejected its best candidate (low confidence) or found nothing. "
+              "Spot-check the attendees list — if wrong, fix via `kb_corrections.json` "
+              "before it propagates into syntheses._")
+        print()
+        for date_s, title, fn, rejected, source in weak:
+            tag = "rejected" if rejected else "no-match"
+            note = f" — was: _{rejected}_" if rejected else ""
+            print(f"- **{date_s}** [{tag}] {title}{note}")
+        print()
 
     gaps = _meetings_without_recordings(days_back=7)
     if gaps:

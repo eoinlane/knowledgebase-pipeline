@@ -942,7 +942,17 @@ for note in notes:
     note_people = [x for x in note_people if x and not (x in seen or seen.add(x))]
     all_attendees = []  # (name, email)
     canonical_match = meetings[0] if meetings else None
-    if canonical_match:
+    # Trust threshold: a calendar match is only used for attendees when its
+    # raw cost is at most 0 (i.e. at least one bonus signal — voice overlap,
+    # title cue, small attendee count — has applied). Pure-delta matches
+    # with no semantic signal routinely glued multi-hour-offset events to
+    # the wrong recordings (e.g. one OpenAI Frontiers calendar block
+    # absorbed 5 different unrelated recordings 6-8h away). Pre-2026-06-14
+    # ~375/749 KB meetings (50%) had a "calendar" attendees_source that
+    # was actually a no-signal best-delta guess. Audit fields stay; the
+    # `match_trusted: false` marker says we deliberately didn't trust it.
+    match_trusted = canonical_match is not None and canonical_match[1] <= 0
+    if canonical_match and match_trusted:
         _, _, mtg = canonical_match
         for a in mtg.get("ATTENDEES", "").split("|"):
             a = a.strip()
@@ -1069,7 +1079,13 @@ for note in notes:
         lines.append(f'matched_event: "{evt_title}"')
         lines.append(f'matched_event_score: {round(-score, 1)}')  # higher = better, hence negate
         lines.append(f'matched_event_delta_min: {delta_min}')
-        lines.append(f'attendees_source: "calendar"')
+        if match_trusted:
+            lines.append(f'attendees_source: "calendar"')
+        else:
+            # Audit trail preserved (event/score/delta above), but flag
+            # explicitly that the calendar wasn't trusted for attendees.
+            lines.append(f'match_trusted: false')
+            lines.append(f'attendees_source: "csv:key_people"' if note_people else f'attendees_source: "none"')
     elif note_people:
         lines.append(f'attendees_source: "csv:key_people"')
     else:
