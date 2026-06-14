@@ -71,8 +71,20 @@ VOICE_MARGIN_MEDIUM    = 0.03
 # significantly beats the runner-up, append this recording's embedding to
 # that person's catalog (rolling 20). Grows the catalog without needing
 # manual review_speakers.py confirmations.
-AUTO_ENROL_MIN_SIM    = 0.92
-AUTO_ENROL_MIN_MARGIN = 0.10
+#
+# Adaptive threshold (2026-06-14): standard 0.92/0.10 stays for catalog
+# entries with ≥ 4 samples — appending a marginal embedding to a sturdy
+# profile risks degrading it. For under-sampled entries (≤ 3 samples),
+# relax to 0.75/0.10 so singletons can grow. 31 of 49 catalog people had
+# only 1 embedding pre-2026-06-14 because the 0.92 gate never fired again
+# (a person's second 1-on-1 typically scores 0.78-0.88, not 0.92+). Margin
+# stays at 0.10 — strict separation from runner-up is the key safety net
+# when similarity is relaxed.
+AUTO_ENROL_MIN_SIM           = 0.92
+AUTO_ENROL_MIN_MARGIN        = 0.10
+AUTO_ENROL_UNDERSAMPLED_SIM    = 0.75
+AUTO_ENROL_UNDERSAMPLED_MARGIN = 0.10
+AUTO_ENROL_UNDERSAMPLED_MAX    = 3
 
 # Category-specific name expansion — imported from shared, with inline fallback
 if not _SHARED_LOADED:
@@ -212,16 +224,27 @@ def auto_enrol(uuid, voice_matches, catalog):
 
     enrolled = []
     for label, m in voice_matches.items():
-        if m.get("confidence") != "high":
-            continue
-        if m.get("similarity", 0) < AUTO_ENROL_MIN_SIM:
-            continue
-        if m.get("margin", 0) < AUTO_ENROL_MIN_MARGIN:
-            continue
         if label not in recording_embs:
             continue
         name = m["name"]
         person = catalog.setdefault(name, {"embeddings": []})
+        sample_count = len(person.get("embeddings", []))
+        if sample_count <= AUTO_ENROL_UNDERSAMPLED_MAX:
+            # Relaxed gate for under-sampled entries: accept medium-confidence
+            # too if margin is strong. Lets a singleton's second appearance
+            # land at the typical 0.78–0.88 match score.
+            min_sim    = AUTO_ENROL_UNDERSAMPLED_SIM
+            min_margin = AUTO_ENROL_UNDERSAMPLED_MARGIN
+        else:
+            # Strict gate for well-sampled entries — protect a sturdy profile.
+            if m.get("confidence") != "high":
+                continue
+            min_sim    = AUTO_ENROL_MIN_SIM
+            min_margin = AUTO_ENROL_MIN_MARGIN
+        if m.get("similarity", 0) < min_sim:
+            continue
+        if m.get("margin", 0) < min_margin:
+            continue
         person["embeddings"].append(recording_embs[label]["embedding"])
         if len(person["embeddings"]) > 20:
             person["embeddings"] = person["embeddings"][-20:]
