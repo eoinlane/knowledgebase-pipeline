@@ -1022,7 +1022,9 @@ def cmd_focus(args):
     overall. The "Today" set is the top 3 across all picks by recording date.
 
     Quality filters (off when --no-quality-filter):
-      - Drops projects in --exclude (default: other:personal,FutureBusiness).
+      - Drops projects in --exclude (default: other:personal). FutureBusiness
+        used to be excluded as low-priority noise but is now treated as a
+        priority lane (new-business pipeline) — included by default.
       - Drops items whose action text starts with a weak verb (Discuss,
         Provide, Consider, Explore) or contains summary-boilerplate
         ("post-meeting summary", "summary of the meeting").
@@ -1550,6 +1552,32 @@ def cmd_brief(args):
         print("No calendar meetings scheduled.")
         print()
 
+    # --- New business pipeline (always shown if any open items) ---
+    # FutureBusiness is the prospect/new-business category and is treated
+    # as priority lane: shown right after today's meetings, no 2-week
+    # cutoff (early-stage items shouldn't age out), all open Eoin-owned
+    # items rendered. The brief's other "Your open commitments" section
+    # only looks back 2 weeks; without this, sparse FutureBusiness items
+    # would slip off the daily surface and lose visibility.
+    new_biz = conn.execute("""
+        SELECT id, meeting_filename, text, owner FROM action_items
+        WHERE status = 'open' AND project = 'FutureBusiness'
+        ORDER BY meeting_filename DESC
+    """).fetchall()
+    if new_biz:
+        print(f"## 🔥 New business pipeline ({len(new_biz)})")
+        print()
+        for item_id, fn, text, owner in new_biz:
+            owner_l = (owner or "").lower()
+            mine = "eoin" in owner_l
+            who = "" if mine else f" — **{owner}**"
+            tag = "you" if mine else "they"
+            if len(text) > 200:
+                text = text[:200].rstrip() + "…"
+            close = f" · {_close_link(item_id)}" if mine else ""
+            print(f"- [{meeting_date(fn)} · {tag}]{who} {text}{close}")
+        print()
+
     # --- Pipeline gaps: stuck 0-byte placeholders + missing recordings ---
     # Both sections surface Stage A failures (Apple Notes export step didn't
     # fire, or recording sat in Notes data store and never reached iCloud).
@@ -1976,8 +2004,9 @@ def main():
     p_focus.add_argument("--project", "-p", help="Filter to one project")
     p_focus.add_argument("--max", type=int, default=10, help="Hard cap on total items (default 10)")
     p_focus.add_argument("--weeks", type=int, default=4, help="Freshness window in weeks (default 4)")
-    p_focus.add_argument("--exclude", default="other:personal,FutureBusiness",
-                        help="Comma-separated projects to exclude (default: other:personal,FutureBusiness)")
+    p_focus.add_argument("--exclude", default="other:personal",
+                        help="Comma-separated projects to exclude (default: other:personal). "
+                             "FutureBusiness is a priority lane, NOT excluded by default since 2026-06-14.")
     p_focus.add_argument("--no-quality-filter", action="store_true",
                         help="Disable the weak-verb / summary-boilerplate quality filter")
     p_focus.add_argument("--push", action="store_true",

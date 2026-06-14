@@ -17,10 +17,11 @@ QUERY_GRAPH="/Users/eoin/query_graph.py"
 STABLE="/Users/eoin/weekly_synthesis.md"
 EMAILER="/Users/eoin/morning_brief_emailer.py"
 
-# Active client projects. Excludes other:* and FutureBusiness (same gating
-# as `query_graph.py focus`). DFB is part of the DCC umbrella so it lives
-# inside DCC's synthesis rather than getting its own.
-PROJECTS=("NTA" "DCC" "Diotima" "Paradigm" "ADAPT" "TBS" "LCC")
+# Active client projects + new-business pipeline (FutureBusiness — added
+# 2026-06-14 as a priority lane, was previously excluded as low-volume
+# noise). Excludes other:* still. DFB is part of the DCC umbrella so it
+# lives inside DCC's synthesis rather than getting its own.
+PROJECTS=("FutureBusiness" "NTA" "DCC" "Diotima" "Paradigm" "ADAPT" "TBS" "LCC")
 
 mkdir -p "$SYNTH_DIR"
 TODAY=$(date +%Y-%m-%d)

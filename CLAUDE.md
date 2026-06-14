@@ -67,7 +67,7 @@ python3 ~/query_graph.py open --project NTA --by-date   # legacy date-desc order
 - Closes the open-loop problem: pre-2026-06-14, only 1 of 5,712 action items had ever been explicitly closed (87% auto-marked stale). The brief is now the queue, the inbox is the close button.
 
 **Weekly synthesis (added 2026-06-14):**
-- `mac/launchd/weekly-synthesis.sh` loops 7 active client projects (NTA, DCC, Diotima, Paradigm, ADAPT, TBS, LCC) running `query_graph.py synthesise --project X` and concatenates the per-project narratives into one markdown doc. Drops the H1 to H2 per project so the email has a single top-level title. Skipped sections render as placeholders when synthesis fails.
+- `mac/launchd/weekly-synthesis.sh` loops 8 projects (FutureBusiness + NTA, DCC, Diotima, Paradigm, ADAPT, TBS, LCC) running `query_graph.py synthesise --project X` and concatenates the per-project narratives into one markdown doc. Drops the H1 to H2 per project so the email has a single top-level title. Skipped sections render as placeholders when synthesis fails.
 - Launchd agent `com.eoin.weekly-synthesis` fires Sunday 18:00 IST, ahead of Monday 07:00 weekly-review. Output: `~/weekly_synthesis.md` (stable) + `~/knowledge_base/_syntheses/YYYY-MM-DD.md` (archive) + email via the same Gmail SMTP path as the morning brief.
 - Opus 4.7 default. Cost ~7 × ~$0.15 ≈ ~$1/week. Synthesise stores each run in the `syntheses` table (entity_type=project, entity_id, model, created_at); the next run uses the previous synthesis as context for progressive compression.
 - **Case sensitivity (2026-06-14 fix):** synthesise used to force `args.project.upper()`, which silently returned "No meetings found" for `Diotima`/`Paradigm` (stored CamelCase in graph_edges, unlike `NTA`/`DCC`/`ADAPT`/`TBS`/`LCC`). Now resolves to the actual stored casing via a `LOWER(to_id) = LOWER(?)` lookup before querying, and the downstream `entity_id.upper()` comparisons treat both sides case-insensitively so action items / decisions match.
@@ -80,7 +80,7 @@ python3 ~/query_graph.py open --project NTA --by-date   # legacy date-desc order
 
 **Apple Reminders integration:**
 - `query_graph.py focus` curates the focus list; `--push` writes to Apple Reminders via `mac/apple_reminders.py` (osascript helpers — no MCP dependency from the CLI). Lists are `KB:<project>` + `KB:Today`. Dedupes via `[kb-id]` line in each reminder's notes. KB:Today is rolling (stale entries pruned each push); per-project lists are append-only.
-- Curation rules: Eoin-owned items, fresh (4-week window), excluded projects (`other:personal`, `FutureBusiness` by default), quality filter (drops weak-verb + summary-boilerplate items), max 3 per project, hard cap 10 total, plus a "Today" cross-cut of top 3 by recording date.
+- Curation rules: Eoin-owned items, fresh (4-week window), excluded projects (`other:personal` by default; FutureBusiness was excluded pre-2026-06-14 but is now a priority lane), quality filter (drops weak-verb + summary-boilerplate items), max 3 per project, hard cap 10 total, plus a "Today" cross-cut of top 3 by recording date.
 - Write-back (completed reminders → `~/.graph_closures.json`) is the remaining piece. Design captured in memory dossier `project_apple_reminders_integration.md`.
 
 **Outbound email context (added 2026-05-24):**
